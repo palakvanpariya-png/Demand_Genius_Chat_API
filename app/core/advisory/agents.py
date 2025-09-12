@@ -247,7 +247,7 @@ class AdvisoryAgent(BaseAgent):
             response_text = self._call_llm(
                 system_prompt="You are a strategic business advisor focused on content strategy and optimization. Provide actionable strategic advice, not data listings or basic information.",
                 user_prompt=prompt,
-                temperature=0.6,  # Higher for strategic creativity
+                temperature=0.4,  # Higher for strategic creativity
                 max_tokens=250
             )
             
@@ -282,7 +282,7 @@ Content Library Context:
 
 ROLE: Strategic Content Advisor
 
-CRITICAL: First analyze the user's query intent:
+CRITICAL: First analyze the user's query intent( Don't mention the query intent to the user.):
 
 1. STRATEGIC ADVICE QUERIES (provide full advisory response):
 - Content strategy questions ("how should I optimize my content?")
@@ -301,7 +301,8 @@ For STRATEGIC queries: Provide detailed actionable business advice, recommendati
 
 For GENERAL queries: Give a brief overview of your content library status and mention you can provide strategic advice if needed. Keep under 100 words.
 
-Analyze the query intent first, then respond appropriately. Don't mention it to the user. Keep strategic responses under 200 words.
+Analyze the query intent first, then respond appropriately.
+Keep strategic responses under 200 words.
 """
     
     def _fallback_advisory_response(self, query: str, advisory_context: Dict) -> Dict[str, Any]:
