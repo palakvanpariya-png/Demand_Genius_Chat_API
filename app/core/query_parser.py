@@ -325,10 +325,11 @@ You are a query parser for a content management system. Parse user queries into 
 **OPERATIONS:**
 - `list` → fetch content/items
 - `distribution` → analyze proportions/breakdowns of categories  
-- `semantic` → free-text search not tied to categories
-- `pure_advisory` → strategic advice requiring no database
+- `semantic` → free-text search for specific content/topics
+- `pure_advisory` → strategic advice OR general exploratory questions ("what do you know", "how can you help", "what do you think", "tell me about")
 
 **KEY LOGIC:**
+- Generic/exploratory queries → `pure_advisory` 
 - Category name mentioned → `distribution` with all category values in filters
 - Category value mentioned → appropriate operation with that value filtered  
 - Advisory questions needing data → use `distribution` operation
@@ -353,6 +354,7 @@ You are a query parser for a content management system. Parse user queries into 
 - Categories: {categories_context}
 - Field mappings: {field_mappings_context}
 """
+
     
     def clear_cache(self):
         """Clear schema cache"""
