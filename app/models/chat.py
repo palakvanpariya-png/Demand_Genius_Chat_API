@@ -3,9 +3,15 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from .database import DatabaseResponse
 
+
+class MessageRequest(BaseModel):
+    """Request model for chat message - only contains message and optional session_id"""
+    message: str
+    session_id: Optional[str] = None
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=1000, description="User's natural language query")
-    tenant_id: str = Field(..., description="Tenant ID for the request")
+    tenant_id: Optional[str] = Field(..., description="Tenant ID for the request")
     session_id: Optional[str] = Field(None, description="Optional session ID for conversation context")
 
 class ChatResponse(BaseModel):
@@ -33,3 +39,6 @@ class SessionCreateResponse(BaseModel):
     session_id: str
     message: str = "Session created successfully"
 
+class JWTAccount(BaseModel):
+    user_id: str
+    tenant_id: str

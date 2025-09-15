@@ -65,13 +65,14 @@ class ChatService:
             # Step 4: Generate advisory response using new MongoDB system
             logger.info("Generating advisory insights with MongoDB session support")
             advisory_response = self.advisor.generate_response(
-                operation=query_result.operation,
-                query_result=query_result,
-                db_response=db_response,
-                tenant_schema=tenant_schema,
-                original_query=message,
-                session_id=session_id  # MongoDB session handler will manage this
-            )
+            operation=query_result.operation,
+            query_result=query_result,
+            db_response=db_response,
+            tenant_schema=tenant_schema,
+            original_query=message,
+            session_id=session_id,
+            tenant_id=tenant_id  # ADD THIS
+        )
             
             # Step 5: OPTIONAL - Keep existing session service for compatibility
             # The new system already stores in MongoDB, but you can keep both if needed

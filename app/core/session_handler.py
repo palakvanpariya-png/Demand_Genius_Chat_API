@@ -68,27 +68,27 @@ class SessionHandler:
             
             # Update or create session document
             result = db.sessions.update_one(
-                {"session_id": session_id},
-                {
-                    "$push": {
-                        "interactions": {
-                            "$each": [interaction_data],
-                            "$slice": -self.max_memory_length  # Keep only recent interactions
-                        }
-                    },
-                    "$set": {
-                        "updated_at": datetime.utcnow(),
-                        "last_activity": datetime.utcnow()
-                    },
-                    "$setOnInsert": {
-                        "session_id": session_id,
-                        "created_at": datetime.utcnow(),
-                        "tenant_id": "",  # Will be updated when we have tenant context
-                        "interactions": []
+            {"session_id": session_id},
+            {
+                "$push": {
+                    "interactions": {
+                        "$each": [interaction_data],
+                        "$slice": -self.max_memory_length
                     }
                 },
-                upsert=True
-            )
+                "$set": {
+                    "updated_at": datetime.utcnow(),
+                    "last_activity": datetime.utcnow()
+                },
+                "$setOnInsert": {
+                    "session_id": session_id,
+                    "created_at": datetime.utcnow(),
+                    "tenant_id": ""
+                    # Remove "interactions": [] line
+                }
+            },
+            upsert=True
+        )
             
             logger.debug(f"Stored interaction for session {session_id}")
             

@@ -1,28 +1,33 @@
-# app/api/routes/chat.py - Updated to use tenant_id from request body
-from fastapi import APIRouter, HTTPException
+# app/api/routes/chat.py - Updated to use JWT authentication
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Optional, Dict, Any
 import logging
 from loguru import logger
 
-from ...models.chat import ChatRequest, APIResponse, SessionCreateRequest, SessionCreateResponse
+from ...models.chat import MessageRequest, APIResponse, SessionCreateResponse
 from ...core.helpers.data_formatters import format_api_response, format_error_response
 from ...services.chat_service import chat_service
 from ...services.session_service import session_service
 from ...core.schema_extractor import get_tenant_schema
 from ...config.settings import settings
+from ...middleware.jwt_middleware import get_current_user, JWTAccount
 
 router = APIRouter()
 
 @router.post("/message", response_model=Dict[str, Any])
-async def send_message(request: ChatRequest):
+async def send_message(
+    request: MessageRequest, 
+    current_user: JWTAccount = Depends(get_current_user)
+):
     """
     Process chat message and return advisory response in API format
     
     Args:
-        request: Chat request with message, tenant_id, and optional session_id
+        request: Message request with message content and optional session_id
+        current_user: Authenticated user from JWT token (contains tenant_id and user_id)
         
     Returns:
-        API response with success, message, and data structure
+        API response with success, message, data structure, and session_id
     """
     try:
         # Validate message length
@@ -32,18 +37,27 @@ async def send_message(request: ChatRequest):
                 "validation_error"
             )
         
-        # Validate tenant_id format (basic validation)
-        if not request.tenant_id or len(request.tenant_id) < 10:
-            return format_error_response(
-                "Invalid tenant ID provided.",
-                "validation_error"
-            )
+        # Use tenant_id from JWT payload
+        tenant_id = current_user.tenant_id
+        
+        # Auto-handle session creation
+        session_id = request.session_id
+        if not session_id:
+            # Create new session automatically if none provided
+            session_id = await session_service.create_session(tenant_id)
+            logger.info(f"Auto-created session {session_id} for tenant {tenant_id}, user {current_user.user_id}")
+        else:
+            # Verify session exists and belongs to this tenant
+            existing_session = await session_service.get_session(session_id, tenant_id)
+            if not existing_session:
+                logger.warning(f"Session {session_id} not found for tenant {tenant_id}, creating new session")
+                session_id = await session_service.create_session(tenant_id)
         
         # Process the chat message (returns InternalChatResponse)
         internal_response = await chat_service.process_chat_message(
             message=request.message,
-            tenant_id=request.tenant_id,
-            session_id=request.session_id
+            tenant_id=tenant_id,
+            session_id=session_id  # Always have a session_id now
         )
         
         # Get tenant schema for column config (only for list/semantic operations)
@@ -53,19 +67,25 @@ async def send_message(request: ChatRequest):
                 tenant_schema = get_tenant_schema(
                     settings.MONGODB_URI, 
                     settings.DATABASE_NAME, 
-                    request.tenant_id
+                    tenant_id
                 )
             except Exception as e:
-                logger.warning(f"Failed to get tenant schema for {request.tenant_id}: {e}")
+                logger.warning(f"Failed to get tenant schema for {tenant_id}: {e}")
         
         # Convert to API format
         api_response = format_api_response(
             internal_response,
             tenant_schema=tenant_schema,
-            tenant_id=request.tenant_id
+            tenant_id=tenant_id
         )
         
-        logger.info(f"Chat message processed for tenant {request.tenant_id}, operation: {internal_response.operation}")
+        # Always include session_id in response so client can use it for next message
+        if "data" in api_response:
+            api_response["data"]["session_id"] = session_id
+        else:
+            api_response["data"] = {"session_id": session_id}
+        
+        logger.info(f"Chat message processed for tenant {tenant_id}, user {current_user.user_id}, session {session_id}, operation: {internal_response.operation}")
         return api_response
         
     except HTTPException as e:
@@ -74,62 +94,55 @@ async def send_message(request: ChatRequest):
             "http_error"
         )
     except Exception as e:
-        logger.error(f"Chat endpoint error for tenant {request.tenant_id}: {e}")
+        logger.error(f"Chat endpoint error for tenant {current_user.tenant_id}: {e}")
         return format_error_response(
             "Internal server error occurred while processing your request",
             "internal_error"
         )
 
 @router.post("/session/new", response_model=SessionCreateResponse)
-async def create_new_session(request: SessionCreateRequest):
+async def create_new_session(current_user: JWTAccount = Depends(get_current_user)):
     """
     Create new chat session
     
     Args:
-        request: Session creation request with tenant_id
+        current_user: Authenticated user from JWT token (contains tenant_id)
         
     Returns:
         New session ID
     """
     try:
-        # Validate tenant_id
-        if not request.tenant_id or len(request.tenant_id) < 10:
-            raise HTTPException(status_code=400, detail="Invalid tenant ID provided")
+        tenant_id = current_user.tenant_id
         
-        session_id = await session_service.create_session(request.tenant_id)
+        session_id = await session_service.create_session(tenant_id)
         
-        logger.info(f"New session created for tenant {request.tenant_id}: {session_id}")
+        logger.info(f"New session created for tenant {tenant_id}, user {current_user.user_id}: {session_id}")
         return SessionCreateResponse(
             session_id=session_id,
             message="Session created successfully"
         )
         
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Session creation error for tenant {request.tenant_id}: {e}")
+        logger.error(f"Session creation error for tenant {current_user.tenant_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to create session")
 
 @router.get("/session/{session_id}", response_model=Dict[str, Any])
-async def get_session_info(session_id: str, tenant_id: str):
+async def get_session_info(
+    session_id: str, 
+    current_user: JWTAccount = Depends(get_current_user)
+):
     """
     Get session information and history
     
     Args:
         session_id: Session ID to retrieve
-        tenant_id: Tenant ID (can be passed as query parameter)
+        current_user: Authenticated user from JWT token (contains tenant_id)
         
     Returns:
         Session information in API format
     """
     try:
-        # Validate tenant_id
-        if not tenant_id or len(tenant_id) < 10:
-            return {
-                "success": False,
-                "message": "Invalid tenant ID provided",
-                "data": {"session_id": session_id}
-            }
+        tenant_id = current_user.tenant_id
         
         session_info = await session_service.get_session(session_id, tenant_id)
         
@@ -148,7 +161,7 @@ async def get_session_info(session_id: str, tenant_id: str):
         }
         
     except Exception as e:
-        logger.error(f"Session retrieval error for tenant {tenant_id}: {e}")
+        logger.error(f"Session retrieval error for tenant {current_user.tenant_id}: {e}")
         return {
             "success": False,
             "message": "Failed to retrieve session",
@@ -156,29 +169,26 @@ async def get_session_info(session_id: str, tenant_id: str):
         }
 
 @router.delete("/session/{session_id}", response_model=Dict[str, Any])
-async def delete_session(session_id: str, tenant_id: str):
+async def delete_session(
+    session_id: str, 
+    current_user: JWTAccount = Depends(get_current_user)
+):
     """
     Delete chat session
     
     Args:
         session_id: Session ID to delete
-        tenant_id: Tenant ID (can be passed as query parameter)
+        current_user: Authenticated user from JWT token (contains tenant_id)
         
     Returns:
         Deletion confirmation in API format
     """
     try:
-        # Validate tenant_id
-        if not tenant_id or len(tenant_id) < 10:
-            return {
-                "success": False,
-                "message": "Invalid tenant ID provided",
-                "data": {"session_id": session_id}
-            }
+        tenant_id = current_user.tenant_id
         
         await session_service.delete_session(session_id, tenant_id)
         
-        logger.info(f"Session deleted for tenant {tenant_id}: {session_id}")
+        logger.info(f"Session deleted for tenant {tenant_id}, user {current_user.user_id}: {session_id}")
         return {
             "success": True,
             "message": "Session deleted successfully",
@@ -186,7 +196,7 @@ async def delete_session(session_id: str, tenant_id: str):
         }
         
     except Exception as e:
-        logger.error(f"Session deletion error for tenant {tenant_id}: {e}")
+        logger.error(f"Session deletion error for tenant {current_user.tenant_id}: {e}")
         return {
             "success": False,
             "message": "Failed to delete session",
@@ -195,7 +205,7 @@ async def delete_session(session_id: str, tenant_id: str):
 
 @router.get("/health", response_model=Dict[str, Any])
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint (no authentication required)"""
     from datetime import datetime
     return {
         "success": True,
@@ -208,24 +218,18 @@ async def health_check():
     }
 
 @router.get("/capabilities", response_model=Dict[str, Any])
-async def get_capabilities(tenant_id: str):
+async def get_capabilities(current_user: JWTAccount = Depends(get_current_user)):
     """
     Get chat service capabilities for this tenant
     
     Args:
-        tenant_id: Tenant ID (query parameter)
+        current_user: Authenticated user from JWT token (contains tenant_id)
     
     Returns:
         Available operations and features
     """
     try:
-        # Validate tenant_id
-        if not tenant_id or len(tenant_id) < 10:
-            return {
-                "success": False,
-                "message": "Invalid tenant ID provided",
-                "data": {"error": "Invalid tenant ID"}
-            }
+        tenant_id = current_user.tenant_id
         
         # You could get actual tenant-specific capabilities here
         capabilities = {
@@ -233,7 +237,8 @@ async def get_capabilities(tenant_id: str):
             "features": ["conversation_memory", "strategic_insights", "content_analysis"],
             "max_message_length": 1000,
             "supported_languages": ["en"],
-            "tenant_id": tenant_id
+            "tenant_id": tenant_id,
+            "user_id": current_user.user_id
         }
         
         return {
@@ -243,9 +248,10 @@ async def get_capabilities(tenant_id: str):
         }
         
     except Exception as e:
-        logger.error(f"Capabilities retrieval error for tenant {tenant_id}: {e}")
+        logger.error(f"Capabilities retrieval error for tenant {current_user.tenant_id}: {e}")
         return {
             "success": False,
             "message": "Failed to retrieve capabilities",
             "data": {"error": str(e)}
         }
+
