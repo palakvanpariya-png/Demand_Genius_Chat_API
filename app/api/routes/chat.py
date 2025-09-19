@@ -5,12 +5,12 @@ import logging
 from loguru import logger
 
 from ...models.chat import MessageRequest, APIResponse, SessionCreateResponse
-from ...core.helpers.data_formatters import format_api_response, format_error_response
+from ...utilities.helpers.data_formatters import format_api_response, format_error_response
 from ...services.chat_service import chat_service
 from ...services.session_service import session_service
 from ...core.schema_extractor import get_tenant_schema
 from ...config.settings import settings
-from ...middleware.jwt_middleware import get_current_user, JWTAccount
+from ...securities.jwt import get_current_user, JWTAccount
 
 router = APIRouter()
 

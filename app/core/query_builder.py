@@ -8,26 +8,26 @@ import logging
 from loguru import logger
 
 from ..config.settings import settings
-from ..config.database import get_database, get_mongo_client
+from ..config.database import db_connection
 from ..models.query import QueryResult, FilterDict, DateFilter, Pagination
 from ..models.database import DatabaseResponse
 from ..models.content import DistributionItem, DistributionResult
 from .schema_extractor import get_tenant_schema
 
 # Import helper functions
-from .helpers.date_utils import parse_date_string
-from .helpers.data_formatters import (
+from ..utilities.helpers.date_utils import parse_date_string
+from ..utilities.helpers.data_formatters import (
     convert_objectids_to_strings, 
     format_sitemap_data, 
     build_pagination_response
 )
-from .helpers.database_helpers import (
+from ..utilities.helpers.database_helpers import (
     get_standardized_lookup_pipeline,
     get_category_attribute_ids,
     get_reference_ids,
     get_count
 )
-from .helpers.query_helpers import (
+from ..utilities.helpers.query_helpers import (
     build_base_match_query,
     apply_semantic_filters,
     apply_category_filters,
@@ -47,23 +47,12 @@ class MongoQueryExecutor:
         self._db = None
 
     def _get_db_connection(self):
-        """Get database connection with proper management"""
-        if not self._client:
-            self._client = MongoClient(
-                self.mongo_uri,
-                serverSelectionTimeoutMS=5000,
-                connectTimeoutMS=5000,
-                maxPoolSize=50
-            )
-            self._db = self._client[self.db_name]
-        return self._db
+        """Use centralized database connection"""
+        return db_connection.get_database()
 
     def _close_connection(self):
-        """Close database connection"""
-        if self._client:
-            self._client.close()
-            self._client = None
-            self._db = None
+        """No-op since we use centralized connection"""
+        pass
 
     def _get_schema(self, tenant_id: str) -> Dict:
         """Get cached schema for tenant"""

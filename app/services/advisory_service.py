@@ -1,6 +1,6 @@
 # app/services/advisory_service.py
 """
-Updated Advisory Service - Integrates with new 4-file advisory system
+Updated Advisory Service - Now using proper Pydantic models instead of dicts
 Maintains your existing service pattern while using the new streamlined architecture
 """
 
@@ -9,17 +9,21 @@ from datetime import datetime
 from loguru import logger
 
 # Import new advisory system
-from ..core.advisory.advisor_manager import AdvisorManager
+from ..utilities.advisory.advisor_manager import AdvisorManager
 from ..models.query import QueryResult
 from ..models.database import DatabaseResponse
 from ..models.session import SessionInfo, InteractionRecord
+from ..models.advisory import (
+    AdvisoryResponse, SessionStatsResponse, PerformanceMetrics, 
+    AdvisoryHealthResponse, ConfidenceLevel, HealthStatus
+)
 from ..config.settings import settings
 
 
 class AdvisoryService:
     """
     Service layer for advisory operations with session management
-    Now uses the streamlined 4-file advisory system
+    Now uses proper Pydantic models for all responses
     """
     
     def __init__(self):
@@ -34,7 +38,7 @@ class AdvisoryService:
         tenant_schema: Dict,
         original_query: str,
         session_id: Optional[str] = None
-    ) -> Dict[str, Any]:
+    ) -> AdvisoryResponse:
         """
         Generate advisory response using new streamlined system
         
@@ -47,11 +51,11 @@ class AdvisoryService:
             session_id: Optional session ID
             
         Returns:
-            Advisory response dictionary
+            AdvisoryResponse model instead of dict
         """
         try:
             # Use new advisor manager (single call, operation-based routing)
-            response = self.advisor.generate_response(
+            response_dict = self.advisor.generate_response(
                 operation=operation,
                 query_result=query_result,
                 db_response=db_response,
@@ -60,20 +64,31 @@ class AdvisoryService:
                 session_id=session_id
             )
             
+            # Convert dict response to AdvisoryResponse model
+            advisory_response = AdvisoryResponse(
+                response=response_dict.get("response", ""),
+                suggested_questions=response_dict.get("suggested_questions", []),
+                confidence=response_dict.get("confidence", ConfidenceLevel.MEDIUM),
+                operation=operation,
+                session_id=session_id
+            )
+            
             logger.info(f"Advisory response generated for operation: {operation}")
-            return response
+            return advisory_response
             
         except Exception as e:
             logger.error(f"Advisory service error: {e}")
-            return {
-                "response": "I encountered an issue generating insights. Please try rephrasing your question.",
-                "suggested_questions": [
+            return AdvisoryResponse(
+                response="I encountered an issue generating insights. Please try rephrasing your question.",
+                suggested_questions=[
                     "Show me my content overview",
                     "What content categories do I have?", 
                     "Help me understand my content distribution"
                 ],
-                "confidence": "low"
-            }
+                confidence=ConfidenceLevel.LOW,
+                operation=operation,
+                session_id=session_id
+            )
     
     async def get_session_history(self, session_id: str) -> Optional[SessionInfo]:
         """
@@ -101,7 +116,7 @@ class AdvisoryService:
                 message=ctx.get("query", ""),
                 response_summary=ctx.get("response_summary", ""),
                 operation=ctx.get("operation", "unknown"),
-                confidence="medium"  # Default since not stored in simple format
+                confidence=ConfidenceLevel.MEDIUM  # Default since not stored in simple format
             )
             interactions.append(interaction)
         
@@ -126,21 +141,32 @@ class AdvisoryService:
         """Get list of active session IDs"""
         return self.advisor.session_handler.get_active_sessions()
     
-    def get_session_stats(self) -> Dict[str, Any]:
+    def get_session_stats(self) -> SessionStatsResponse:
         """
-        Get session statistics
-        Now uses new session handler stats
+        Get session statistics using proper model
+        
+        Returns:
+            SessionStatsResponse model instead of dict
         """
-        stats = self.advisor.get_session_stats()
-        
-        # Add service-level information
-        stats.update({
-            "service_version": "streamlined_v1",
-            "advisory_system": "4-file_architecture",
-            "agents": ["ContentResultsAgent", "DistributionAgent", "AdvisoryAgent"]
-        })
-        
-        return stats
+        try:
+            stats_dict = self.advisor.get_session_stats()
+            
+            # Convert dict to SessionStatsResponse model
+            return SessionStatsResponse(
+                total_sessions=stats_dict.get("total_sessions", 0),
+                total_interactions=stats_dict.get("total_interactions", 0),
+                active_sessions_24h=stats_dict.get("active_sessions_24h"),
+                service_version="streamlined_v1",
+                advisory_system="4-file_architecture",
+                agents=["ContentResultsAgent", "DistributionAgent", "AdvisoryAgent"],
+                storage_type=stats_dict.get("storage_type"),
+                max_memory_length=stats_dict.get("max_memory_length")
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to get session stats: {e}")
+            # Return default stats on error
+            return SessionStatsResponse()
     
     async def cleanup_old_sessions(self, max_age_hours: int = 24) -> int:
         """
@@ -155,24 +181,33 @@ class AdvisoryService:
             logger.error(f"Failed to cleanup old sessions: {e}")
             return 0
     
-    def get_performance_metrics(self) -> Dict[str, Any]:
+    def get_performance_metrics(self) -> PerformanceMetrics:
         """
-        Get performance metrics for monitoring
-        New feature to track system performance
-        """
-        stats = self.get_session_stats()
+        Get performance metrics using proper model
         
-        return {
-            "active_sessions": stats["total_sessions"],
-            "total_interactions": stats["total_interactions"],
-            "avg_interactions_per_session": (
-                stats["total_interactions"] / stats["total_sessions"] 
-                if stats["total_sessions"] > 0 else 0
-            ),
-            "system_type": "streamlined_advisory",
-            "expected_performance": "4-6s per response (50% faster than previous)",
-            "architecture": "operation_based_routing"
-        }
+        Returns:
+            PerformanceMetrics model instead of dict
+        """
+        try:
+            stats = self.get_session_stats()
+            
+            # Calculate avg interactions per session (same logic as original)
+            avg_interactions = 0.0
+            if stats.total_sessions > 0:
+                avg_interactions = stats.total_interactions / stats.total_sessions
+            
+            return PerformanceMetrics(
+                active_sessions=stats.total_sessions,  # Fixed: keep original logic
+                total_interactions=stats.total_interactions,
+                avg_interactions_per_session=round(avg_interactions, 2),
+                system_type="streamlined_advisory",
+                expected_performance="4-6s per response (50% faster than previous)",
+                architecture="operation_based_routing"
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to get performance metrics: {e}")
+            return PerformanceMetrics()
 
 
 # Global service instance (maintain your existing pattern)
@@ -184,20 +219,37 @@ def get_advisory_service() -> AdvisoryService:
     return advisory_service
 
 # Additional utility function for monitoring
-async def health_check() -> Dict[str, Any]:
-    """Health check for advisory system"""
+async def health_check() -> AdvisoryHealthResponse:
+    """
+    Health check for advisory system using proper model
+    
+    Returns:
+        AdvisoryHealthResponse model instead of dict
+    """
     try:
         stats = advisory_service.get_session_stats()
-        return {
-            "status": "healthy",
-            "active_sessions": stats["total_sessions"],
-            "system": "streamlined_advisory_v1",
-            "agents": 3,
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        
+        return AdvisoryHealthResponse(
+            status=HealthStatus.HEALTHY,
+            active_sessions=stats.active_sessions_24h or 0,
+            system="streamlined_advisory_v1",
+            agents=len(stats.agents),
+            timestamp=datetime.utcnow().isoformat(),
+            database_connected=True,  # You can add actual DB health check here
+            openai_configured=bool(settings.OPENAI_API_KEY and settings.OPENAI_API_KEY != "your_openai_api_key"),
+            memory_usage={
+                "total_sessions": stats.total_sessions,
+                "storage_type": stats.storage_type or "unknown"
+            }
+        )
+        
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        logger.error(f"Health check failed: {e}")
+        return AdvisoryHealthResponse(
+            status=HealthStatus.ERROR,
+            active_sessions=0,
+            system="streamlined_advisory_v1", 
+            agents=0,
+            timestamp=datetime.utcnow().isoformat(),
+            error=str(e)
+        )

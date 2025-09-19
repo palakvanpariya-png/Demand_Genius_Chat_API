@@ -1,7 +1,7 @@
 # app/services/chat_service.py
 """
 Updated ChatService with MongoDB Session Handler Integration
-Minimal changes to integrate the new MongoDB-based advisory system
+Now using proper models instead of dicts
 """
 
 from typing import Dict, Any, Optional
@@ -10,15 +10,15 @@ from loguru import logger
 
 from ..core.query_parser import SmartQueryParser
 from ..core.query_builder import MongoQueryExecutor
-# CHANGE 1: Replace old import with new MongoDB-based system
-# from ..core.advisory_answer import IntelligentAdvisor
-from ..core.advisory.advisor_manager import AdvisorManager
+from ..utilities.advisory.advisor_manager import AdvisorManager
 
 from ..services.schema_service import schema_service
-from ..services.session_service import session_service  # Keep your existing service
+from ..services.session_service import session_service
 from ..models.query import QueryResult
 from ..models.database import DatabaseResponse
-from ..models.chat import ChatResponse
+from ..models.chat import ChatResponse, DataSummary
+from ..models.session import SessionInfo, InteractionRecord
+from ..models.advisory import AdvisoryResponse, SessionStatsResponse
 from ..config.settings import settings
 
 class ChatService:
@@ -29,7 +29,6 @@ class ChatService:
     def __init__(self):
         self.query_parser = SmartQueryParser()
         self.query_executor = MongoQueryExecutor()
-        # CHANGE 2: Initialize AdvisorManager with MongoDB support
         self.advisor = AdvisorManager()
         
     async def process_chat_message(
@@ -64,35 +63,34 @@ class ChatService:
             
             # Step 4: Generate advisory response using new MongoDB system
             logger.info("Generating advisory insights with MongoDB session support")
-            advisory_response = self.advisor.generate_response(
-            operation=query_result.operation,
-            query_result=query_result,
-            db_response=db_response,
-            tenant_schema=tenant_schema,
-            original_query=message,
-            session_id=session_id,
-            tenant_id=tenant_id  # ADD THIS
-        )
+            advisory_response_dict = self.advisor.generate_response(
+                operation=query_result.operation,
+                query_result=query_result,
+                db_response=db_response,
+                tenant_schema=tenant_schema,
+                original_query=message,
+                session_id=session_id,
+                tenant_id=tenant_id
+            )
             
             # Step 5: OPTIONAL - Keep existing session service for compatibility
-            # The new system already stores in MongoDB, but you can keep both if needed
             if session_id:
                 await session_service.store_interaction(
                     session_id=session_id,
                     tenant_id=tenant_id,
                     message=message,
-                    response=advisory_response
+                    response=advisory_response_dict
                 )
             
-            # Step 6: Create response (same as before)
+            # Step 6: Create response using models
             response = ChatResponse(
                 success=True,
-                response=advisory_response["response"],
-                suggested_questions=advisory_response["suggested_questions"],
-                confidence=advisory_response["confidence"],
+                response=advisory_response_dict["response"],
+                suggested_questions=advisory_response_dict["suggested_questions"],
+                confidence=advisory_response_dict["confidence"],
                 operation=query_result.operation,
                 session_id=session_id,
-                data_summary=self._create_data_summary(db_response),
+                data_summary=self._create_data_summary(db_response).dict(),  # Convert to dict for ChatResponse
                 db_response=db_response
             )
             
@@ -115,58 +113,46 @@ class ChatService:
                 session_id=session_id
             )
     
-    def _create_data_summary(self, db_response: DatabaseResponse) -> Optional[Dict[str, Any]]:
-        """Create summary of database response for API (unchanged)"""
+    def _create_data_summary(self, db_response: DatabaseResponse) -> DataSummary:
+        """Create summary of database response using model"""
         if not db_response.success:
-            return {"error": True, "message": db_response.error}
+            return DataSummary(
+                type="error",
+                error=True,
+                message=db_response.error
+            )
         
         if getattr(db_response, 'advisory_mode', False):
-            return {"type": "advisory", "message": "No database query performed"}
+            return DataSummary(
+                type="advisory",
+                message="No database query performed"
+            )
         
-        if db_response.operation == "list":
-            return {
-                "type": "content_list",
-                "count": len(db_response.data) if db_response.data else 0,
-                "total": db_response.total_count or 0,
-                "has_more": getattr(db_response, 'has_next', False)
-            }
+        if db_response.operation in ["list", "semantic"]:
+            return DataSummary(
+                type="content_list",
+                count=len(db_response.data) if db_response.data else 0,
+                total=db_response.total_count or 0,
+                has_more=getattr(db_response, 'has_next', False)
+            )
         elif db_response.operation == "distribution":
-            return {
-                "type": "distribution",
-                "categories": len(db_response.data) if db_response.data else 0,
-                "fields": db_response.distribution_fields or []
-            }
-        elif db_response.operation == "semantic":
-            return {
-                "type": "semantic_search",
-                "matches": db_response.total_count or 0,
-                "page": db_response.page or 1
-            }
+            return DataSummary(
+                type="distribution",
+                categories=len(db_response.data) if db_response.data else 0,
+                fields=db_response.distribution_fields or []
+            )
         else:
-            return {"type": "unknown", "operation": db_response.operation}
+            return DataSummary(
+                type="unknown",
+                operation=db_response.operation
+            )
     
     # NEW METHODS: Session management integration
-    async def get_session_history(self, session_id: str, tenant_id: str) -> Optional[Dict]:
-        """Get session history from MongoDB"""
+    async def get_session_history(self, session_id: str, tenant_id: str) -> Optional[SessionInfo]:
+        """Get session history using existing SessionInfo model"""
         try:
             session_info = self.advisor.session_handler.get_session_info(session_id, tenant_id)
-            if session_info:
-                return {
-                    "session_id": session_info.session_id,
-                    "tenant_id": session_info.tenant_id,
-                    "created_at": session_info.created_at,
-                    "interaction_count": session_info.interaction_count,
-                    "interactions": [
-                        {
-                            "timestamp": interaction.timestamp,
-                            "message": interaction.message,
-                            "operation": interaction.operation,
-                            "confidence": interaction.confidence
-                        }
-                        for interaction in session_info.interactions[-5:]  # Last 5 interactions
-                    ]
-                }
-            return None
+            return session_info  # Already returns SessionInfo model
         except Exception as e:
             logger.error(f"Failed to get session history: {e}")
             return None
@@ -179,52 +165,21 @@ class ChatService:
             logger.error(f"Failed to cleanup sessions: {e}")
             return 0
     
-    def get_session_stats(self) -> Dict[str, Any]:
-        """Get session statistics from MongoDB"""
+    def get_session_stats(self) -> SessionStatsResponse:
+        """Get session statistics using model"""
         try:
-            stats = self.advisor.get_session_stats()
-            stats["mongodb_sessions"] = True
-            stats["dual_session_storage"] = True  # If keeping both systems
-            return stats
+            stats_dict = self.advisor.get_session_stats()
+            return SessionStatsResponse(
+                total_sessions=stats_dict.get("total_sessions", 0),
+                total_interactions=stats_dict.get("total_interactions", 0),
+                active_sessions_24h=stats_dict.get("active_sessions_24h"),
+                mongodb_sessions=True,
+                dual_session_storage=True,
+                storage_type=stats_dict.get("storage_type")
+            )
         except Exception as e:
             logger.error(f"Failed to get session stats: {e}")
-            return {"error": str(e)}
+            return SessionStatsResponse()
 
 # Global service instance
 chat_service = ChatService()
-
-
-# MIGRATION NOTES:
-"""
-MongoDB Collection Structure Created:
-{
-  "_id": ObjectId,
-  "session_id": "uuid-string",
-  "tenant_id": "tenant-id", 
-  "created_at": datetime,
-  "updated_at": datetime,
-  "last_activity": datetime,
-  "interactions": [
-    {
-      "timestamp": "iso-string",
-      "message": "user query",
-      "response_summary": "truncated response",
-      "operation": "list|semantic|distribution|pure_advisory",
-      "confidence": "high|medium|low"
-    }
-  ]
-}
-
-Indexes Created:
-- session_id (unique)
-- tenant_id  
-- last_activity
-- (tenant_id, last_activity) compound
-
-Benefits:
-- Sessions persist across server restarts
-- Better performance with indexes
-- Automatic cleanup of old sessions
-- Compatible with existing models
-- Can scale horizontally
-"""

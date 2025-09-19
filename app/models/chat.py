@@ -26,6 +26,21 @@ class ChatResponse(BaseModel):
     error: Optional[str] = None
     db_response: Optional[DatabaseResponse] = None
 
+class DataSummary(BaseModel):
+    """
+    Simple data summary for API responses
+    Handles all _create_data_summary return types
+    """
+    type: str = Field(..., description="Summary type: error, advisory, content_list, distribution, unknown")
+    message: Optional[str] = Field(None, description="Message for error or advisory types")
+    count: Optional[int] = Field(None, description="Number of items shown (for content_list)")
+    total: Optional[int] = Field(None, description="Total items available (for content_list)")
+    has_more: Optional[bool] = Field(None, description="Whether more items available (for content_list)")
+    categories: Optional[int] = Field(None, description="Number of categories (for distribution)")
+    fields: Optional[List[str]] = Field(None, description="Distribution fields (for distribution)")
+    operation: Optional[str] = Field(None, description="Operation name (for unknown type)")
+    error: Optional[bool] = Field(None, description="Error flag")
+    
 class APIResponse(BaseModel):
     """Clean API response format matching frontend expectations"""
     success: bool

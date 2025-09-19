@@ -4,7 +4,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
 from jose import jwt as jose_jwt, JWTError as JoseJWTError
 import pydantic
-from loguru import logger
+from loguru import logger 
 
 from app.config.settings import settings
 

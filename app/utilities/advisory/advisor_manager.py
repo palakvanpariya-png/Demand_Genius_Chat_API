@@ -12,8 +12,8 @@ from ...config.settings import settings
 from ...models.query import QueryResult
 from ...models.database import DatabaseResponse
 from .agents import ContentResultsAgent, DistributionAgent, AdvisoryAgent
-from .data_processor import DataProcessor
-from ..session_handler import SessionHandler
+from .context_manager import DataProcessor
+from ...core.session_handler import SessionHandler
 
 
 class AdvisorManager:

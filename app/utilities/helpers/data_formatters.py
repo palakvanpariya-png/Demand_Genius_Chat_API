@@ -2,6 +2,7 @@
 from typing import Dict, List, Any
 from bson import ObjectId
 
+
 def convert_objectids_to_strings(data):
     """Convert ObjectIds to strings in the data"""
     if isinstance(data, list):

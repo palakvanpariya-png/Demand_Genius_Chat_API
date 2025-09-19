@@ -4,10 +4,8 @@ from bson import ObjectId
 from typing import Dict, List, Any, Optional
 import logging
 from loguru import logger
-
+from ..config.database import db_connection
 from ..config.settings import settings
-
-# logger = logging.getLogger(__name__)
 
 class SchemaExtractor:
     """
@@ -15,38 +13,20 @@ class SchemaExtractor:
     """
     
     def __init__(self, mongo_uri: str = None, db_name: str = None):
-        self.mongo_uri = mongo_uri or settings.MONGODB_URI
-        self.db_name = db_name or settings.DATABASE_NAME
-        self._client = None
-        self._db = None
+        # Keep for backward compatibility but don't use
+        pass
     
     def _get_db_connection(self):
-        """Get database connection with proper error handling"""
-        if not self._client:
-            try:
-                self._client = MongoClient(self.mongo_uri, serverSelectionTimeoutMS=5000)
-                self._db = self._client[self.db_name]
-            except Exception as e:
-                logger.error(f"Failed to connect to MongoDB: {e}")
-                raise
-        return self._db
-    
+        """Use centralized database connection"""
+        return db_connection.get_database()
+
     def _close_connection(self):
-        """Close database connection"""
-        if self._client:
-            self._client.close()
-            self._client = None
-            self._db = None
-    
+        """No-op since we use centralized connection"""
+        pass
+        
     def extract_tenant_schema(self, tenant_id: str) -> Dict[str, Any]:
         """
         Extract complete schema information for a tenant
-        
-        Args:
-            tenant_id: Tenant ID to extract schema for
-        
-        Returns:
-            Dictionary containing categories, field_mappings, and collection_schemas
         """
         try:
             db = self._get_db_connection()
@@ -116,20 +96,30 @@ class SchemaExtractor:
                         categories_data["Language"] = set()
                     categories_data["Language"].add(geo_focus)
             
-            # Content Types
-            content_types = db.content_types.find({"tenant": tenant_obj_id})
-            categories_data["Content Type"] = {ct["name"] for ct in content_types if ct.get("name")}
+            # FIXED: Content Types - Convert cursor to list first
+            content_types_cursor = db.content_types.find({"tenant": tenant_obj_id})
+            content_types_list = list(content_types_cursor)  # Convert cursor to list
+            if content_types_list:  # Check if list has items
+                categories_data["Content Type"] = {ct["name"] for ct in content_types_list if ct.get("name")}
             
-            # Topics
-            topics = db.topics.find({"tenant": tenant_obj_id})
-            categories_data["Topics"] = {topic["name"] for topic in topics if topic.get("name")}
+            # FIXED: Topics - Convert cursor to list first
+            topics_cursor = db.topics.find({"tenant": tenant_obj_id})
+            topics_list = list(topics_cursor)  # Convert cursor to list
+            if topics_list:  # Check if list has items
+                categories_data["Topics"] = {topic["name"] for topic in topics_list if topic.get("name")}
             
-            # Custom Tags
-            custom_tags = db.custom_tags.find({"tenant": tenant_obj_id})
-            categories_data["Custom Tags"] = {tag["name"] for tag in custom_tags if tag.get("name")}
+            # FIXED: Custom Tags - Convert cursor to list first
+            custom_tags_cursor = db.custom_tags.find({"tenant": tenant_obj_id})
+            custom_tags_list = list(custom_tags_cursor)  # Convert cursor to list
+            if custom_tags_list:  # Check if list has items
+                categories_data["Custom Tags"] = {tag["name"] for tag in custom_tags_list if tag.get("name")}
             
-            # Convert sets to sorted lists
-            return {k: sorted(list(v)) for k, v in categories_data.items() if v}
+            # FIXED: Convert sets to sorted lists and check properly
+            result = {}
+            for k, v in categories_data.items():
+                if len(v) > 0:  # Check length instead of boolean
+                    result[k] = sorted(list(v))
+            return result
             
         except Exception as e:
             logger.error(f"Error extracting categories: {e}")
@@ -242,14 +232,6 @@ def get_schema_extractor() -> SchemaExtractor:
 def get_tenant_schema(mongo_uri: str, db_name: str, tenant_id: str) -> Dict[str, Any]:
     """
     Backward compatibility function - extract tenant schema
-    
-    Args:
-        mongo_uri: MongoDB connection string  
-        db_name: Database name
-        tenant_id: Tenant ID to extract schema for
-    
-    Returns:
-        Dictionary containing schema information
     """
     extractor = SchemaExtractor(mongo_uri, db_name)
     return extractor.extract_tenant_schema(tenant_id)

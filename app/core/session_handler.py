@@ -12,6 +12,8 @@ from bson import ObjectId
 
 from ..models.session import SessionInfo, InteractionRecord
 from ..config.settings import settings
+from ..config.database import db_connection
+
 
 
 class SessionHandler:
@@ -28,26 +30,12 @@ class SessionHandler:
         self._db = None
     
     def _get_db_connection(self):
-        """Get database connection with proper error handling"""
-        if not self._client:
-            try:
-                self._client = MongoClient(
-                    self.mongo_uri,
-                    serverSelectionTimeoutMS=5000,
-                    connectTimeoutMS=5000
-                )
-                self._db = self._client[self.db_name]
-            except Exception as e:
-                logger.error(f"Failed to connect to MongoDB: {e}")
-                raise
-        return self._db
-    
+        """Use centralized database connection"""
+        return db_connection.get_database()
+
     def _close_connection(self):
-        """Close database connection"""
-        if self._client:
-            self._client.close()
-            self._client = None
-            self._db = None
+        """No-op since we use centralized connection"""
+        pass
     
     def store_interaction(self, session_id: str, query: str, response: Dict, operation: str):
         """

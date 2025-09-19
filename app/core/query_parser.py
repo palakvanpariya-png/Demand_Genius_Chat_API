@@ -8,6 +8,7 @@ from datetime import datetime
 from openai import OpenAI
 from typing import Dict, List, Optional
 from ..config.settings import settings
+from ..config.database import db_connection
 from ..models.query import QueryResult, FilterDict, DateFilter, Pagination
 from .schema_extractor import get_tenant_schema
 
@@ -108,16 +109,14 @@ class SmartQueryParser:
         )
     
     def _get_cached_schema(self, tenant_id: str) -> Dict:
-        """Get schema with caching to avoid redundant database calls"""
+        """Get schema using centralized database connection"""
         if tenant_id not in self._schema_cache:
-            schema_data = get_tenant_schema(self.mongo_uri, self.db_name, tenant_id)
+            # Use centralized connection instead of passing URIs
+            from .schema_extractor import SchemaExtractor
+            extractor = SchemaExtractor()  # No need to pass mongo_uri, db_name
+            schema_data = extractor.extract_tenant_schema(tenant_id)
             if not schema_data:
                 raise ValueError(f"Tenant {tenant_id} not found")
-            
-            # Validate schema structure
-            if not isinstance(schema_data.get("categories", {}), dict):
-                raise ValueError(f"Invalid schema structure for tenant {tenant_id}: categories must be dict")
-                
             self._schema_cache[tenant_id] = schema_data
         return self._schema_cache[tenant_id]
     
