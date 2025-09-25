@@ -315,72 +315,66 @@ class SmartQueryParser:
         ]
     
     def _build_system_message(self, categories: Dict, schema_data: Dict, query_text: str) -> str:
-        """Build system message with current date and schema context"""
+        """
+        Clean, conflict-free system message for query parsing
+        Built step-by-step to match the exact OpenAI function schema
+        """
         
         categories_context = json.dumps(categories, indent=2)
-        field_mappings_context = json.dumps(schema_data.get("field_mappings", {}), indent=2)
         today = datetime.today().strftime("%Y-%m-%d")
         
         return f"""
-You are a query parser for a content management system. Parse user queries into structured JSON operations matching the provided schema.
+    You are a query parser that converts natural language into structured database queries.
+    Parse queries using this step-by-step approach to avoid conflicts.
 
-**CORE RULES:**
-- Always match to existing categories/values - never create new ones
-- Prioritize exact matches, but attempt semantic matching for unmatched terms
-- ALWAYS return exact schema values, regardless of input format variations
-- Return valid JSON matching the schema
-- If the confidence is LOW give that default to pure_advisory operation
+    **STEP 1: ROUTE (Always "database" unless pure advisory)**
+    - route: "database" = Query needs data from database
+    - route: "advisory" = Pure strategic advice without data
 
-**CONFIDENCE SCORING:**
-- HIGH: Clear, specific requests with identifiable intent ("show me TOFU content", "distribution of funnel stage")
-- MEDIUM: Mostly clear but some ambiguity ("analyze my content performance", "help with content strategy") 
-- LOW: Vague, unclear, or very general requests ("analyze my content", "improve my stuff", "what should I do", "show me content")
+    **STEP 2: OPERATION (Choose exactly ONE)**
+    - `list` = User wants to SEE/SHOW specific content items
+    Keywords: "show", "list", "find", "get", "display", "give me", "how many", "which ones"
+    
+    - `distribution` = User wants to ANALYZE/BREAK DOWN by categories
+    Keywords: "distribution", "breakdown", "analyze", "what percentage"
+    
+    - `semantic` = User searches with DESCRIPTIVE terms (not exact category names)
+    Keywords: topics/themes not in exact schema values
+    
+    - `pure_advisory` = User wants strategic advice or help
+    Keywords: "help", "advice", "strategy", "what should I", "how can you"
 
-**CRITICAL EXCLUSIVITY RULE - PRIMARY/SECONDARY AUDIENCE:**
-- When assigning values to "Primary Audience" include array, DO NOT assign the same values to "Secondary Audience" include array
-- When assigning values to "Secondary Audience" include array, DO NOT assign the same values to "Primary Audience" include array  
-- Each audience value can only appear in ONE of these categories per query - NEVER in both
+    **STEP 3: CONFIDENCE**
+    - "high" = Clear intent, specific request
+    - "medium" = Mostly clear intent  
+    - "low" = Vague or ambiguous
 
-**STRICT OPERATION RULES:**
-- If operation is distribution you must provide the distribution_fields
-- Example: operation: distribution, filters: {{"Funnel Stage": {{"include": ["TOFU"], "exclude": []}}}}, then distribution_fields must be ["Funnel Stage"]
+    **STEP 4: FILTERS (Only use exact category values from schema)**
+    Match user terms to exact schema values. Use empty objects if no matches.
+    Example: "TOFU content" → {{"Funnel Stage": {{"include": ["TOFU"], "exclude": []}}}}
 
-**OPERATIONS:**
-- `list` → fetch content/items
-- `distribution` → analyze proportions/breakdowns of categories  
-- `semantic` → free-text search for specific content/topics
-- `pure_advisory` → strategic advice OR general exploratory questions ("what do you know", "how can you help", "what do you think", "tell me about")
+    **STEP 5: PAGINATION**
+    - Default: {{"skip": 0, "limit": {settings.DEFAULT_PAGE_SIZE}}}
+    - "top N": {{"skip": 0, "limit": N}}
 
-**KEY LOGIC:**
-- Generic/exploratory queries → `pure_advisory` 
-- Category name mentioned → `distribution` with all category values in filters
-- Category value mentioned → appropriate operation with that value filtered  
-- Advisory questions needing data → use `distribution` operation
-- Marketing detection → set `marketing_filter: true/false` based on marketing context
-- Negation ("not X", "without Y") → `"is_negation": true` + exclude arrays
-- "Distribution of X" → `"distribution_fields": ["X"]`
-- "Distribution of X across Y" → `"distribution_fields": ["X", "Y"]`
-- If a query sounds advisory but mentions a known category or category value 
-- (e.g. "TOFU", "Funnel Stage", "Industry"), it MUST NOT be `pure_advisory`.
--  Instead, map it to `distribution` with the relevant field(s).
+    **STEP 6: OTHER FIELDS**
+    - marketing_filter: true (marketing mentioned), false (non-marketing), null (not mentioned)
+    - is_negation: true only for "not X", "without Y"
+    - semantic_terms: descriptive words for semantic search
+    - needs_data: false only for pure advisory
+    - distribution_fields: category names for distribution operation
 
-**DATES:** Reference: {today}
-- "last N days/weeks/months" → start_date = today - N, end_date = today
-- "more than N ago" → end_date = today - N, start_date = null
-- Format: YYYY-MM-DD
+    **CRITICAL RULES:**
+    1. If operation is "distribution", MUST include distribution_fields
+    2. Use exact schema values only - never invent new ones
+    3. Default to simple interpretations, avoid over-complicating
 
-**PAGINATION:** Default: skip=0, limit={settings.DEFAULT_PAGE_SIZE}
-- "top N" → limit = N
-- "page P" → skip = (P-1)*{settings.DEFAULT_PAGE_SIZE}, limit = {settings.DEFAULT_PAGE_SIZE}
-- "last N" → skip = -1, limit = N
-- "count only" → skip = -2, limit = 0
-- "all" → limit = {settings.MAX_PAGE_SIZE}
+    **AVAILABLE CATEGORIES:**
+    {categories_context}
 
-**CONTEXT:**
-- Categories: {categories_context}
-- Field mappings: {field_mappings_context}
-"""
+    **TODAY:** {today}
 
+    Return valid JSON matching the function schema exactly. """
     
     def clear_cache(self):
         """Clear schema cache"""

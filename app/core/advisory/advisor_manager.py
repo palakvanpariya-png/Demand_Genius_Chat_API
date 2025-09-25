@@ -90,9 +90,6 @@ class AdvisoryOrchestrator:
         Direct routing - no AI decision making overhead
         Single agent call based on operation type
         """
-        # Handle conversational queries first (lightweight check)
-        if self._is_conversational_query(query):
-            return self.content_agent._handle_conversational_query(query) or self._default_conversational_response()
         
         # Direct routing based on operation
         if operation in ["list", "semantic"]:

@@ -85,47 +85,6 @@ class ContentResultsAgent(BaseAgent):
             logger.error(f"Content agent error: {e}")
             return self._fallback_response(query, data_results)
     
-    def _handle_conversational_query(self, query: str) -> Optional[Dict[str, Any]]:
-        """Handle greetings and casual conversation"""
-        if not query or not query.strip():
-            return None
-        
-        query_lower = query.strip().lower()
-        
-        if any(word in query_lower for word in ["hi", "hello", "hey"]):
-            return {
-                "response": "Hello! I can help you analyze your content library. What would you like to explore?",
-                "suggested_questions": [
-                    "Show me my content overview",
-                    "What content categories do I have?",
-                    "Analyze my content distribution"
-                ],
-                "confidence": "high"
-            }
-        
-        if any(word in query_lower for word in ["help", "what can you do"]):
-            return {
-                "response": "I can search your content, analyze distributions across categories, and provide strategic recommendations. What specific analysis would help?",
-                "suggested_questions": [
-                    "Search for content about a topic",
-                    "Show me content distribution",
-                    "What strategic opportunities exist?"
-                ],
-                "confidence": "high"
-            }
-        
-        if any(word in query_lower for word in ["thanks", "thank you"]):
-            return {
-                "response": "You're welcome! What else would you like to analyze?",
-                "suggested_questions": [
-                    "Analyze content performance",
-                    "Show me content gaps",
-                    "What's my content strategy?"
-                ],
-                "confidence": "high"
-            }
-        
-        return None
     
     def _build_content_prompt(self, query: str, data_results: Dict, context: Dict) -> str:
         """
@@ -321,10 +280,12 @@ Total Content: {total_content} pieces across {category_count} categories
 CATEGORY BREAKDOWN:
 {category_breakdown}
 
-RESPONSE RULES:
+RESPONSE STRICT RULES:
 1. Irrelevant/gibberish queries → "Your query does not seem related to content strategy or this dataset. Please ask a relevant question."
 2. Use previous context for coherent multi-turn responses
 3. Insufficient information → "I can give you this information based on my analysis, but if you provide a clearer question I can help you better"
+4. Add specifications and analysis only when asked otherwsie do give a brief overview of the content library without specific numbers
+5. Give your overview as to how the directory is not just numbers 
 
 QUERY HANDLING:
 • Overview ("what do you know", "hello", "tell me about" kind of questions ) → Brief overview (50-100 words)
@@ -341,7 +302,7 @@ QUERY HANDLING:
 • Detailed ("comprehensive analysis", "full breakdown", "analyze everything") → Complete analysis (200-300 words)
 
 DATA USAGE REQUIREMENTS:
-- Reference exact numbers from category breakdown
+- Reference exact numbers from category breakdown only when asked not every time 
 - Identify specific strengths and gaps
 - Base recommendations on actual content distribution
 - Be actionable with concrete next steps

@@ -172,6 +172,7 @@ class MongoQueryExecutor:
         # Execute query with data
         total_count = get_count(db, match_query)
         
+    
         # Build unified aggregation pipeline
         pipeline = [
             {"$match": match_query},
@@ -180,7 +181,7 @@ class MongoQueryExecutor:
             {"$skip": skip},
             {"$limit": limit}
         ]
-        
+        logger.debug(f"Aggregation pipeline: {pipeline}")
         raw_data = list(db.sitemaps.aggregate(pipeline))
         
         # Format data to match expected structure

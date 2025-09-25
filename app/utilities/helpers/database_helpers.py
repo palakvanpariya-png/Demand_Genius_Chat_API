@@ -53,7 +53,7 @@ def get_category_attribute_ids(db, names: List[str], category_name: str, tenant_
         return []
     
     # Get attribute ObjectIds
-    attrs = list(db.category_attributes.find({
+    attrs = list(db["category-attributes"].find({
         "name": {"$in": names},
         "category": category_doc["_id"],
         "tenant": tenant_obj_id
