@@ -3,6 +3,7 @@ from pymongo import MongoClient
 from bson import ObjectId
 from typing import Dict, List, Any, Optional
 import logging
+import time
 from loguru import logger
 from ..config.database import db_connection
 from ..config.settings import settings
@@ -10,10 +11,12 @@ from ..config.settings import settings
 class SchemaExtractor:
     """
     Extracts and caches tenant schema information from MongoDB
+    Enhanced with tenant context samples for advisory
     """
     
     def __init__(self, mongo_uri: str = None, db_name: str = None):
         # Keep for backward compatibility but don't use
+        self._samples_cache = {}  # Simple cache for tenant samples
         pass
     
     def _get_db_connection(self):
@@ -38,6 +41,7 @@ class SchemaExtractor:
             collection_schemas = self._get_collection_schemas()
             doc_counts = self._get_document_counts(db, tenant_obj_id, collection_schemas.keys())
             
+         
             return {
                 "tenant_id": str(tenant_obj_id),
                 "categories": categories,
@@ -56,19 +60,44 @@ class SchemaExtractor:
             raise
         finally:
             self._close_connection()
-    
+
+
     def _extract_categories(self, db, tenant_obj_id: ObjectId) -> Dict[str, List[str]]:
-        """Extract all categories and their values for a tenant"""
+        """Extract all categories and their values for a tenant WITH USAGE COUNTS"""
         categories_data = {}
         
         try:
+            # DEBUG: Log the tenant_obj_id being used
+            logger.debug(f"Extracting categories for tenant_obj_id: {tenant_obj_id} (type: {type(tenant_obj_id)})")
+            
+            # FIRST: Check what format tenant is stored in the database
+            sample_sitemap = db.sitemaps.find_one({"tenant": tenant_obj_id})
+            if not sample_sitemap:
+                # Try with string version
+                sample_sitemap = db.sitemaps.find_one({"tenant": str(tenant_obj_id)})
+                if sample_sitemap:
+                    logger.debug(f"Found sitemap using string tenant ID, switching to string format")
+                    tenant_obj_id = str(tenant_obj_id)  # Use string format
+                else:
+                    logger.warning(f"No sitemaps found for tenant {tenant_obj_id} in either ObjectId or string format")
+                    return {}
+            
+            logger.debug(f"Sample sitemap found: {sample_sitemap.get('_id') if sample_sitemap else 'None'}")
+            
+            # Count documents that will be processed
+            sitemap_count = db.sitemaps.count_documents({"tenant": tenant_obj_id})
+            logger.debug(f"Found {sitemap_count} sitemaps to process")
+            
+            if sitemap_count == 0:
+                logger.warning("No sitemaps found, categories will be empty")
+                return {}
             # Get all categories for this tenant
             categories = {str(cat["_id"]): cat["name"] 
                          for cat in db.categories.find({"tenant": tenant_obj_id})}
             
             # Get category attributes mapping
             category_attrs = {}
-            for attr in db.category_attributes.find({"tenant": tenant_obj_id}):
+            for attr in db["category-attributes"].find({"tenant": tenant_obj_id}):
                 category_id = str(attr["category"])
                 category_name = categories.get(category_id)
                 if category_name:
@@ -77,7 +106,7 @@ class SchemaExtractor:
                         "attribute_name": attr["name"]
                     }
             
-            # Extract values from sitemaps
+            # UPDATED: Count usage while extracting values from sitemaps
             for doc in db.sitemaps.find({"tenant": tenant_obj_id}):
                 # Category attributes
                 attr_ids = doc.get("categoryAttribute", [])
@@ -85,44 +114,85 @@ class SchemaExtractor:
                     attr_info = category_attrs.get(str(attr_id))
                     if attr_info:
                         cat_name = attr_info["category_name"]
+                        attr_name = attr_info["attribute_name"]
+                        
                         if cat_name not in categories_data:
-                            categories_data[cat_name] = set()
-                        categories_data[cat_name].add(attr_info["attribute_name"])
+                            categories_data[cat_name] = {}  # CHANGED: Dict instead of set
+                        
+                        if attr_name not in categories_data[cat_name]:
+                            categories_data[cat_name][attr_name] = 0  # CHANGED: Initialize count
+                        
+                        categories_data[cat_name][attr_name] += 1  # CHANGED: Increment count
                 
-                # Language (geoFocus)
+                # Language (geoFocus) with counts
                 geo_focus = doc.get("geoFocus")
                 if geo_focus:
                     if "Language" not in categories_data:
-                        categories_data["Language"] = set()
-                    categories_data["Language"].add(geo_focus)
+                        categories_data["Language"] = {}  # CHANGED: Dict instead of set
+                    
+                    if geo_focus not in categories_data["Language"]:
+                        categories_data["Language"][geo_focus] = 0  # CHANGED: Initialize count
+                    
+                    categories_data["Language"][geo_focus] += 1  # CHANGED: Increment count
             
-            # FIXED: Content Types - Convert cursor to list first
-            content_types_cursor = db.content_types.find({"tenant": tenant_obj_id})
-            content_types_list = list(content_types_cursor)  # Convert cursor to list
-            if content_types_list:  # Check if list has items
-                categories_data["Content Type"] = {ct["name"] for ct in content_types_list if ct.get("name")}
+            # UPDATED: Content Types with counts
+            content_types_cursor = db["content-types"].find({"tenant": tenant_obj_id})
+            content_types_list = list(content_types_cursor)
+            if content_types_list:
+                categories_data["Content Type"] = {}
+                for ct in content_types_list:
+                    if ct.get("name"):
+                        ct_name = ct["name"]
+                        # Count how many sitemaps use this content type
+                        count = db.sitemaps.count_documents({
+                            "tenant": tenant_obj_id,
+                            "contentType": ct["_id"]
+                        })
+                        if count > 0:  # Only include if used
+                            categories_data["Content Type"][ct_name] = count
             
-            # FIXED: Topics - Convert cursor to list first
-            topics_cursor = db.topics.find({"tenant": tenant_obj_id})
-            topics_list = list(topics_cursor)  # Convert cursor to list
-            if topics_list:  # Check if list has items
-                categories_data["Topics"] = {topic["name"] for topic in topics_list if topic.get("name")}
+            # UPDATED: Topics with counts
+            topics_cursor = db["topics"].find({"tenant": tenant_obj_id})
+            topics_list = list(topics_cursor)
+            if topics_list:
+                categories_data["Topics"] = {}
+                for topic in topics_list:
+                    if topic.get("name"):
+                        topic_name = topic["name"]
+                        # Count how many sitemaps use this topic
+                        count = db.sitemaps.count_documents({
+                            "tenant": tenant_obj_id,
+                            "topic": topic["_id"]
+                        })
+                        if count > 0:  # Only include if used
+                            categories_data["Topics"][topic_name] = count
             
-            # FIXED: Custom Tags - Convert cursor to list first
-            custom_tags_cursor = db.custom_tags.find({"tenant": tenant_obj_id})
-            custom_tags_list = list(custom_tags_cursor)  # Convert cursor to list
-            if custom_tags_list:  # Check if list has items
-                categories_data["Custom Tags"] = {tag["name"] for tag in custom_tags_list if tag.get("name")}
+            # UPDATED: Custom Tags with counts
+            custom_tags_cursor = db["custom-tags"].find({"tenant": tenant_obj_id})
+            custom_tags_list = list(custom_tags_cursor)
+            if custom_tags_list:
+                categories_data["Custom Tags"] = {}
+                for tag in custom_tags_list:
+                    if tag.get("name"):
+                        tag_name = tag["name"]
+                        # Count how many sitemaps use this custom tag
+                        count = db.sitemaps.count_documents({
+                            "tenant": tenant_obj_id,
+                            "tag": tag["_id"]
+                        })
+                        if count > 0:  # Only include if used
+                            categories_data["Custom Tags"][tag_name] = count
             
-            # FIXED: Convert sets to sorted lists and check properly
+            # CHANGED: Return dict with counts instead of list, only categories with content
             result = {}
             for k, v in categories_data.items():
-                if len(v) > 0:  # Check length instead of boolean
-                    result[k] = sorted(list(v))
+                if len(v) > 0:  # Only include categories that have content
+                    result[k] = v  # v is now a dict with counts
+            
             return result
             
         except Exception as e:
-            logger.error(f"Error extracting categories: {e}")
+            logger.error(f"Error extracting categories with counts: {e}")
             return {}
     
     def _get_field_mappings(self, categories: Dict[str, List[str]]) -> Dict[str, Dict[str, Any]]:
@@ -137,7 +207,7 @@ class SchemaExtractor:
             "Content Type": {
                 "collection": "sitemaps",
                 "field": "contentType",
-                "reference_collection": "content_types",
+                "reference_collection": "content-types",
                 "requires_join": True,
                 "join_on": "_id",
                 "display_field": "name"
@@ -153,7 +223,7 @@ class SchemaExtractor:
             "Custom Tags": {
                 "collection": "sitemaps",
                 "field": "tag",
-                "reference_collection": "custom_tags",
+                "reference_collection": "custom-tags",
                 "requires_join": True,
                 "join_on": "_id",
                 "display_field": "name",
@@ -167,7 +237,7 @@ class SchemaExtractor:
                 field_mappings[category_name] = {
                     "collection": "sitemaps",
                     "field": "categoryAttribute",
-                    "reference_collection": "category_attributes",
+                    "reference_collection": "category-attributes",
                     "requires_join": True,
                     "join_on": "_id",
                     "display_field": "name",
@@ -189,23 +259,24 @@ class SchemaExtractor:
             ],
             "categories": [
                 "_id", "name", "tenant", "providerId", "createdAt", 
-                "updatedAt", "__v", "slug", "description"
+                "updatedAt", "__v"
             ],
-            "category_attributes": [
+            "category-attributes": [   # fixed name
                 "_id", "category", "tenant", "__v", "createdAt", 
                 "name", "updatedAt"
             ],
-            "content_types": [
+            "content-types": [         # fixed name
                 "_id", "tenant", "__v", "createdAt", "name", "updatedAt"
             ],
             "topics": [
                 "_id", "tenant", "__v", "createdAt", "name", "updatedAt"
             ],
-            "custom_tags": [
+            "custom-tags": [           # fixed name
                 "_id", "name", "tenant", "providerId", "createdAt", 
                 "updatedAt", "__v"
             ]
         }
+
     
     def _get_document_counts(self, db, tenant_obj_id: ObjectId, collection_names: List[str]) -> Dict[str, int]:
         """Get document counts for collections"""

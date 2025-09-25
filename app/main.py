@@ -1,4 +1,3 @@
-
 # app/main.py
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,11 +6,18 @@ from loguru import logger
 from .config.settings import settings, validate_settings
 from .config.database import db_connection
 from .api.routes import health, chat
-from .utils.logger import setup_logger
+# Import debug routes only in debug mode
+from .utilities.logger import setup_logger
+from app.config.logging_config import setup_logging
+
+
+# Import debug routes conditionally
+if settings.DEBUG:
+    from .api.routes import debug
 
 # Setup logging
 setup_logger()
-# logger = logging.getLogger(__name__)
+setup_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -33,6 +39,10 @@ async def lifespan(app: FastAPI):
         raise HTTPException(status_code=500, detail="Database connection failed")
     
     logger.info("Application startup complete")
+    
+    # Log token tracking status
+    if settings.DEBUG:
+        logger.info("Token tracking enabled for debugging")
     
     yield
     
@@ -63,11 +73,18 @@ app.add_middleware(
 app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
 
+# Include debug routes only in debug mode
+if settings.DEBUG:
+    app.include_router(debug.router, prefix="/api/v1/debug", tags=["debug"])
+    logger.info("Debug endpoints enabled at /api/v1/debug/")
+
 @app.get("/")
 async def root():
     """Root endpoint"""
     return {
         "message": "Content Intelligence API",
         "version": settings.API_VERSION,
-        "status": "running"
+        "status": "running",
+        "debug_mode": settings.DEBUG,
+        "token_tracking": settings.DEBUG
     }

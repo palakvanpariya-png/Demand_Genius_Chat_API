@@ -11,6 +11,7 @@ from ..config.settings import settings
 from ..config.database import db_connection
 from ..models.query import QueryResult, FilterDict, DateFilter, Pagination
 from .schema_extractor import get_tenant_schema
+from ..utilities.token_calculator import log_token_usage
 
 # logger = logging.getLogger(__name__)
 
@@ -97,6 +98,7 @@ class SmartQueryParser:
         return QueryResult(
             route=parsed.get("route", "database"),
             operation=parsed.get("operation", "semantic"),
+            confidence=parsed.get("confidence", "medium"),  
             filters=filters,
             date_filter=date_filter,
             marketing_filter=parsed.get("marketing_filter"),
@@ -154,7 +156,7 @@ class SmartQueryParser:
         }
     
     def _ai_parse(self, query_text: str, schema_data: Dict) -> Dict:
-        """Use OpenAI to parse natural language query with retry logic"""
+        """Use OpenAI to parse natural language query with retry logic and token tracking"""
         
         # Check for large schema safeguard
         summary = schema_data.get("summary", {})
@@ -169,24 +171,35 @@ class SmartQueryParser:
         tool_schema = self._build_openai_tool_schema(categories)
         system_message = self._build_system_message(categories, schema_data, query_text)
         
+        # Prepare messages for token tracking
+        messages = [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": query_text}
+        ]
+        
         # Retry logic with exponential backoff
         max_retries = 3
         base_delay = 1
         
         for attempt in range(max_retries):
             try:
+                start_time = time.time()
+                
                 completion = self.client.chat.completions.create(
                     model=settings.OPENAI_MODEL,
-                    messages=[
-                        {"role": "system", "content": system_message},
-                        {"role": "user", "content": query_text}
-                    ],
+                    messages=messages,
                     tools=tool_schema,
                     tool_choice={"type": "function", "function": {"name": "parse_query"}},
                     temperature=settings.OPENAI_TEMPERATURE
                 )
                 
+                execution_time = time.time() - start_time
                 result = json.loads(completion.choices[0].message.tool_calls[0].function.arguments)
+                
+                # Track token usage for debugging
+                response_text = json.dumps(result)  # Function call response
+                log_token_usage(messages, response_text, execution_time, "query_parser")
+                
                 return result
                 
             except json.JSONDecodeError as e:
@@ -230,6 +243,11 @@ class SmartQueryParser:
                                 "enum": ["list", "distribution", "semantic", "pure_advisory"],
                                 "description": "list=show items, distribution=group by, semantic=text search, pure advisory=insights only"
                             },
+                            "confidence": {
+                                "type": "string",
+                                "enum": ["high", "medium", "low"],
+                                "description": "high=clear intent and specific request, medium=mostly clear, low=vague or ambiguous query"
+                            },
                             "filters": {
                                 "type": "object",
                                 "properties": {
@@ -238,11 +256,11 @@ class SmartQueryParser:
                                         "properties": {
                                             "include": {
                                                 "type": "array",
-                                                "items": {"type": "string", "enum": values if values else []}
+                                                "items": {"type": "string", "enum": list(values.keys()) if isinstance(values, dict) else values}
                                             },
                                             "exclude": {
                                                 "type": "array",
-                                                "items": {"type": "string", "enum": values if values else []}
+                                                "items": {"type": "string", "enum": list(values.keys()) if isinstance(values, dict) else values}
                                             }
                                         },
                                         "additionalProperties": False
@@ -311,6 +329,12 @@ You are a query parser for a content management system. Parse user queries into 
 - Prioritize exact matches, but attempt semantic matching for unmatched terms
 - ALWAYS return exact schema values, regardless of input format variations
 - Return valid JSON matching the schema
+- If the confidence is LOW give that default to pure_advisory operation
+
+**CONFIDENCE SCORING:**
+- HIGH: Clear, specific requests with identifiable intent ("show me TOFU content", "distribution of funnel stage")
+- MEDIUM: Mostly clear but some ambiguity ("analyze my content performance", "help with content strategy") 
+- LOW: Vague, unclear, or very general requests ("analyze my content", "improve my stuff", "what should I do", "show me content")
 
 **CRITICAL EXCLUSIVITY RULE - PRIMARY/SECONDARY AUDIENCE:**
 - When assigning values to "Primary Audience" include array, DO NOT assign the same values to "Secondary Audience" include array
@@ -336,6 +360,9 @@ You are a query parser for a content management system. Parse user queries into 
 - Negation ("not X", "without Y") → `"is_negation": true` + exclude arrays
 - "Distribution of X" → `"distribution_fields": ["X"]`
 - "Distribution of X across Y" → `"distribution_fields": ["X", "Y"]`
+- If a query sounds advisory but mentions a known category or category value 
+- (e.g. "TOFU", "Funnel Stage", "Industry"), it MUST NOT be `pure_advisory`.
+-  Instead, map it to `distribution` with the relevant field(s).
 
 **DATES:** Reference: {today}
 - "last N days/weeks/months" → start_date = today - N, end_date = today

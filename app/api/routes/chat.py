@@ -1,7 +1,9 @@
-# app/api/routes/chat.py - Updated to use JWT authentication
+# app/api/routes/chat.py - Updated with LangChain integration and streaming support
 from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any
 import logging
+import json
 from loguru import logger
 
 from ...models.chat import MessageRequest, APIResponse, SessionCreateResponse
@@ -21,13 +23,7 @@ async def send_message(
 ):
     """
     Process chat message and return advisory response in API format
-    
-    Args:
-        request: Message request with message content and optional session_id
-        current_user: Authenticated user from JWT token (contains tenant_id and user_id)
-        
-    Returns:
-        API response with success, message, data structure, and session_id
+    UNCHANGED - maintains your existing non-streaming endpoint
     """
     try:
         # Validate message length
@@ -53,11 +49,11 @@ async def send_message(
                 logger.warning(f"Session {session_id} not found for tenant {tenant_id}, creating new session")
                 session_id = await session_service.create_session(tenant_id)
         
-        # Process the chat message (returns InternalChatResponse)
+        # Process the chat message using LangChain (returns ChatResponse)
         internal_response = await chat_service.process_chat_message(
             message=request.message,
             tenant_id=tenant_id,
-            session_id=session_id  # Always have a session_id now
+            session_id=session_id
         )
         
         # Get tenant schema for column config (only for list/semantic operations)
@@ -100,17 +96,65 @@ async def send_message(
             "internal_error"
         )
 
+@router.post("/message/stream")
+async def send_message_streaming(
+    request: MessageRequest,
+    current_user: JWTAccount = Depends(get_current_user)
+):
+    """
+    NEW: Process chat message with streaming response
+    Provides real-time token streaming using LangChain
+    """
+    async def generate_stream():
+        try:
+            # Validate message length
+            if len(request.message) > 1000:
+                yield f"data: {json.dumps({'type': 'error', 'data': {'error': 'Message too long. Maximum 1000 characters allowed.'}})}\n\n"
+                return
+            
+            # Use tenant_id from JWT payload
+            tenant_id = current_user.tenant_id
+            
+            # Auto-handle session creation (same logic as non-streaming)
+            session_id = request.session_id
+            if not session_id:
+                session_id = await session_service.create_session(tenant_id)
+                logger.info(f"Auto-created session {session_id} for streaming")
+            else:
+                existing_session = await session_service.get_session(session_id, tenant_id)
+                if not existing_session:
+                    session_id = await session_service.create_session(tenant_id)
+            
+            # Process the streaming chat message
+            async for chunk in chat_service.process_chat_message_streaming(
+                message=request.message,
+                tenant_id=tenant_id,
+                session_id=session_id
+            ):
+                # Send each chunk as Server-Sent Events
+                yield f"data: {json.dumps(chunk)}\n\n"
+            
+            # Send final completion signal
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            
+        except Exception as e:
+            logger.error(f"Streaming chat endpoint error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}})}\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream",
+        }
+    )
+
+# EXISTING ENDPOINTS - UNCHANGED for backward compatibility
 @router.post("/session/new", response_model=SessionCreateResponse)
 async def create_new_session(current_user: JWTAccount = Depends(get_current_user)):
-    """
-    Create new chat session
-    
-    Args:
-        current_user: Authenticated user from JWT token (contains tenant_id)
-        
-    Returns:
-        New session ID
-    """
+    """Create new chat session - UNCHANGED"""
     try:
         tenant_id = current_user.tenant_id
         
@@ -131,16 +175,7 @@ async def get_session_info(
     session_id: str, 
     current_user: JWTAccount = Depends(get_current_user)
 ):
-    """
-    Get session information and history
-    
-    Args:
-        session_id: Session ID to retrieve
-        current_user: Authenticated user from JWT token (contains tenant_id)
-        
-    Returns:
-        Session information in API format
-    """
+    """Get session information and history - UNCHANGED"""
     try:
         tenant_id = current_user.tenant_id
         
@@ -153,7 +188,6 @@ async def get_session_info(
                 "data": {"session_id": session_id}
             }
         
-        # Return in API format
         return {
             "success": True,
             "message": "Session retrieved successfully",
@@ -173,16 +207,7 @@ async def delete_session(
     session_id: str, 
     current_user: JWTAccount = Depends(get_current_user)
 ):
-    """
-    Delete chat session
-    
-    Args:
-        session_id: Session ID to delete
-        current_user: Authenticated user from JWT token (contains tenant_id)
-        
-    Returns:
-        Deletion confirmation in API format
-    """
+    """Delete chat session - UNCHANGED"""
     try:
         tenant_id = current_user.tenant_id
         
@@ -205,7 +230,7 @@ async def delete_session(
 
 @router.get("/health", response_model=Dict[str, Any])
 async def health_check():
-    """Health check endpoint (no authentication required)"""
+    """Health check endpoint - UNCHANGED"""
     from datetime import datetime
     return {
         "success": True,
@@ -213,30 +238,30 @@ async def health_check():
         "data": {
             "service": "chat",
             "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
+            "langchain_enabled": True  # NEW: indicate LangChain integration
         }
     }
 
 @router.get("/capabilities", response_model=Dict[str, Any])
 async def get_capabilities(current_user: JWTAccount = Depends(get_current_user)):
-    """
-    Get chat service capabilities for this tenant
-    
-    Args:
-        current_user: Authenticated user from JWT token (contains tenant_id)
-    
-    Returns:
-        Available operations and features
-    """
+    """Get chat service capabilities - ENHANCED with streaming"""
     try:
         tenant_id = current_user.tenant_id
         
-        # You could get actual tenant-specific capabilities here
         capabilities = {
-            "operations": ["list", "semantic", "distribution", "advisory"],
-            "features": ["conversation_memory", "strategic_insights", "content_analysis"],
+            "operations": ["list", "semantic", "distribution", "advisory", "clarification"],
+            "features": [
+                "conversation_memory", 
+                "strategic_insights", 
+                "content_analysis",
+                "langchain_orchestration",  # NEW
+                "streaming_responses"       # NEW
+            ],
             "max_message_length": 1000,
             "supported_languages": ["en"],
+            "streaming_supported": True,    # NEW
+            "langchain_version": "0.1.0",   # NEW
             "tenant_id": tenant_id,
             "user_id": current_user.user_id
         }
@@ -254,4 +279,3 @@ async def get_capabilities(current_user: JWTAccount = Depends(get_current_user))
             "message": "Failed to retrieve capabilities",
             "data": {"error": str(e)}
         }
-

@@ -38,76 +38,130 @@ def build_base_match_query(tenant_id: str, date_filter: Optional[DateFilter],
     
     return match_query
 
+
 def apply_semantic_filters(match_query: Dict, semantic_terms: List[str]):
-    """Apply semantic search conditions to match query"""
+    """Apply semantic search conditions to match query - FIXED VERSION"""
     if not semantic_terms:
         return
         
     text_conditions = []
-    for term in semantic_terms:
-        pattern = re.compile(re.escape(term), re.IGNORECASE)
-        text_conditions.extend([
-            {"name": {"$regex": pattern}},
-            {"description": {"$regex": pattern}},
-            {"summary": {"$regex": pattern}}
-        ])
+    for term_phrase in semantic_terms:
+        # Split compound terms for better matching
+        individual_terms = term_phrase.strip().split()
+        
+        for term in individual_terms:
+            if len(term) > 2:  # Skip very short words
+                pattern = re.compile(re.escape(term), re.IGNORECASE)
+                text_conditions.extend([
+                    {"name": {"$regex": pattern}},
+                    {"description": {"$regex": pattern}},
+                    {"summary": {"$regex": pattern}}
+                ])
     
+    # CRITICAL FIX: Always apply semantic filter when terms exist
     if text_conditions:
         match_query["$or"] = text_conditions
+    else:
+        # If no valid terms, ensure no results (instead of all results)
+        match_query["_id"] = {"$in": []}
 
-def apply_category_filters(match_query: Dict, filters: Dict[str, FilterDict], 
-                          is_negation: bool, tenant_id: str, schema: Dict, db):
-    """Apply category filters using schema mappings"""
-    if not filters:
-        return
-    
+
+def apply_category_filters(
+    match_query: Dict,
+    filters: Dict[str, FilterDict],
+    is_negation: bool,
+    tenant_id: str,
+    schema: Dict,
+    db
+):
+    """
+    Apply category filters using schema mappings.
+
+    Handles includes, excludes, negation, and edge case of empty filters with global negation.
+    """
     field_mappings = schema.get("field_mappings", {})
-    
+
+    if not filters:
+        if is_negation:
+            # If global negation with no filters, block all documents
+            match_query["__block_all__"] = True
+        return
+
     for category, filter_dict in filters.items():
         include_values = filter_dict.include
         exclude_values = filter_dict.exclude
-        
-        if include_values or exclude_values:
-            condition = build_category_condition(
-                category, include_values, field_mappings, tenant_id, 
-                exclude_values=exclude_values, negate=is_negation, db=db
-            )
-            if condition:
-                match_query.update(condition)
 
-def build_category_condition(category: str, include_values: List[str], 
-                            field_mappings: Dict, tenant_id: str,
-                            exclude_values: List[str] = None, negate: bool = False, db=None) -> Dict:
-    """Build MongoDB condition for a single category"""
+        # Skip empty categories unless global negation is True
+        if not include_values and not exclude_values and not is_negation:
+            continue
+
+        condition = build_category_condition(
+            category,
+            include_values,
+            field_mappings,
+            tenant_id,
+            exclude_values=exclude_values,
+            negate=is_negation,
+            db=db
+        )
+
+        if condition:
+            match_query.update(condition)
+
+
+def build_category_condition(
+    category: str,
+    include_values: List[str],
+    field_mappings: Dict,
+    tenant_id: str,
+    exclude_values: List[str] = None,
+    negate: bool = False,
+    db=None
+) -> Dict:
+    """
+    Build MongoDB condition for a single category.
+
+    Handles includes, excludes, and negation. Works with direct fields and joins.
+    """
     mapping = field_mappings.get(category)
     if not mapping:
         return {}
-    
+
     field_name = mapping["field"]
     requires_join = mapping.get("requires_join", False)
-    
-    # Get values (ObjectIds or strings)
+    exclude_values = exclude_values or []
+
+    # Resolve values to ObjectIds or strings
     if requires_join:
         if mapping.get("filter_by_category"):
             include_ids = get_category_attribute_ids(db, include_values, category, tenant_id)
-            exclude_ids = get_category_attribute_ids(db, exclude_values or [], category, tenant_id)
+            exclude_ids = get_category_attribute_ids(db, exclude_values, category, tenant_id)
         else:
             include_ids = get_reference_ids(db, mapping["reference_collection"], include_values, tenant_id)
-            exclude_ids = get_reference_ids(db, mapping["reference_collection"], exclude_values or [], tenant_id)
+            exclude_ids = get_reference_ids(db, mapping["reference_collection"], exclude_values, tenant_id)
     else:
         include_ids = include_values
-        exclude_ids = exclude_values or []
-    
-    # Build condition
-    if negate:
-        return {field_name: {"$not": {"$in": exclude_ids}}} if include_ids else {}
-    
+        exclude_ids = exclude_values
+
+    # Build MongoDB condition
     condition = {}
-    if include_ids and exclude_ids:
-        condition[field_name] = {"$in": include_ids, "$not": {"$in": exclude_ids}}
-    elif include_ids:
-        condition[field_name] = {"$in": include_ids}
-    elif exclude_ids:
-        condition[field_name] = {"$not": {"$in": exclude_ids}}
-        
+
+    if negate:
+        # If negation is True and we have no filters, block everything
+        if not include_ids and not exclude_ids:
+            condition["__block_all__"] = True
+        else:
+            # Apply $nin to whatever values exist
+            condition[field_name] = {"$nin": exclude_ids or include_ids}
+    else:
+        # Normal operation
+        if include_ids and exclude_ids:
+            condition[field_name] = {"$in": include_ids, "$nin": exclude_ids}
+        elif include_ids:
+            condition[field_name] = {"$in": include_ids}
+        elif exclude_ids:
+            condition[field_name] = {"$nin": exclude_ids}
+        else:
+            condition = {}
+
     return condition

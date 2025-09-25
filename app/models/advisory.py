@@ -3,30 +3,17 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-class AdvisoryResponse(BaseModel):
-    """
-    Standard advisory response model
-    Replaces dict returns from generate_advisory method
-    """
-    response: str = Field(..., description="Advisory response text")
-    suggested_questions: List[str] = Field(default_factory=list, description="Follow-up question suggestions")
-    confidence: str = Field(default="medium", description="Confidence level: high, medium, low")
-    operation: Optional[str] = Field(None, description="Operation type that generated this response")
-    session_id: Optional[str] = Field(None, description="Session ID if applicable")
+# class AdvisoryResponse(BaseModel):
+#     """
+#     Standard advisory response model
+#     Replaces dict returns from generate_advisory method
+#     """
+#     response: str = Field(..., description="Advisory response text")
+#     suggested_questions: List[str] = Field(default_factory=list, description="Follow-up question suggestions")
+#     confidence: str = Field(default="medium", description="Confidence level: high, medium, low")
+#     operation: Optional[str] = Field(None, description="Operation type that generated this response")
+#     session_id: Optional[str] = Field(None, description="Session ID if applicable")
     
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "response": "I found 150 content pieces matching your search criteria.",
-                "suggested_questions": [
-                    "How is this content distributed across categories?",
-                    "What gaps exist in this content area?"
-                ],
-                "confidence": "high",
-                "operation": "list",
-                "session_id": "session-123"
-            }
-        }
 
 class SessionStatsResponse(BaseModel):
     """
@@ -44,20 +31,7 @@ class SessionStatsResponse(BaseModel):
     )
     storage_type: Optional[str] = Field(None, description="Session storage type (mongodb, memory)")
     max_memory_length: Optional[int] = Field(None, description="Maximum interactions stored per session")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "total_sessions": 25,
-                "total_interactions": 150,
-                "active_sessions_24h": 5,
-                "service_version": "streamlined_v1",
-                "advisory_system": "4-file_architecture",
-                "agents": ["ContentResultsAgent", "DistributionAgent", "AdvisoryAgent"],
-                "storage_type": "mongodb",
-                "max_memory_length": 10
-            }
-        }
+
 
 class PerformanceMetrics(BaseModel):
     """
@@ -76,21 +50,6 @@ class PerformanceMetrics(BaseModel):
     uptime_hours: Optional[float] = Field(None, description="System uptime in hours")
     response_time_avg: Optional[float] = Field(None, description="Average response time in seconds")
     success_rate: Optional[float] = Field(None, description="Success rate percentage")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "active_sessions": 12,
-                "total_interactions": 350,
-                "avg_interactions_per_session": 14.0,
-                "system_type": "streamlined_advisory",
-                "expected_performance": "4-6s per response (50% faster than previous)",
-                "architecture": "operation_based_routing",
-                "uptime_hours": 24.5,
-                "response_time_avg": 4.2,
-                "success_rate": 98.5
-            }
-        }
 
 class AdvisoryHealthResponse(BaseModel):
     """
@@ -106,23 +65,7 @@ class AdvisoryHealthResponse(BaseModel):
     openai_configured: Optional[bool] = Field(None, description="OpenAI API configuration status")
     memory_usage: Optional[Dict[str, Any]] = Field(None, description="Memory usage statistics")
     error: Optional[str] = Field(None, description="Error message if status is error")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "status": "healthy",
-                "active_sessions": 8,
-                "system": "streamlined_advisory_v1",
-                "agents": 3,
-                "timestamp": "2024-01-15T10:30:00Z",
-                "database_connected": True,
-                "openai_configured": True,
-                "memory_usage": {
-                    "sessions_cached": 25,
-                    "schemas_cached": 5
-                }
-            }
-        }
+
 
 # Confidence level enum for better type safety
 class ConfidenceLevel:

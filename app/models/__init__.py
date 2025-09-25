@@ -6,7 +6,6 @@ from .tenant import TenantCategories, FieldMapping, TenantSchema
 from .database import DatabaseResponse, HealthResponse
 from .session import InteractionRecord, SessionInfo, SessionHistory
 from .errors import ErrorResponse, ValidationErrorResponse
-from .advisory import AdvisoryResponse, SessionStatsResponse, PerformanceMetrics, AdvisoryHealthResponse, ConfidenceLevel, HealthStatus
 
 __all__ = [
     # Chat models
@@ -29,8 +28,4 @@ __all__ = [
     
     # Error models
     "ErrorResponse", "ValidationErrorResponse",
-    
-    # Advisory models
-    "AdvisoryResponse", "SessionStatsResponse", "PerformanceMetrics", "AdvisoryHealthResponse",
-    "ConfidenceLevel", "HealthStatus"
 ]

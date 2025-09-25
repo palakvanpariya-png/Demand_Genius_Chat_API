@@ -6,8 +6,6 @@ from loguru import logger
 
 from .settings import settings
 
-# logger = logging.getLogger(__name__)
-
 class DatabaseConnection:
     """MongoDB connection manager"""
     
@@ -42,26 +40,26 @@ class DatabaseConnection:
     
     def disconnect(self):
         """Close database connection"""
-        if self._client:
+        if self._client is not None:  # ✅ FIXED: Use 'is not None'
             self._client.close()
             logger.info("Disconnected from MongoDB")
     
     def get_client(self):
         """Get MongoDB client"""
-        if not self._client:
+        if self._client is None:  # ✅ FIXED: Use 'is None'
             self.connect()
         return self._client
     
     def get_database(self):
         """Get database instance"""
-        if not self._db:
+        if self._db is None:  # ✅ FIXED: Use 'is None'
             self.connect()
         return self._db
     
     def health_check(self) -> bool:
         """Check database health"""
         try:
-            if not self._client:
+            if self._client is None:  # ✅ FIXED: Use 'is None'
                 return False
             self._client.admin.command('ping')
             return True
@@ -78,4 +76,3 @@ def get_database():
 def get_mongo_client():
     """Dependency to get MongoDB client"""
     return db_connection.get_client()
-

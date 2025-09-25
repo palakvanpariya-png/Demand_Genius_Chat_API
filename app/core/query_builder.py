@@ -92,6 +92,16 @@ class MongoQueryExecutor:
                 }
             
             result_dict["operation"] = operation
+
+            data_preview = result_dict.get("data")
+            if isinstance(data_preview, list):
+                preview = data_preview[:2]  # show first 2 items
+            elif isinstance(data_preview, dict):
+                preview = {k: data_preview[k] for k in list(data_preview)[:2]}  # first 2 keys
+            else:
+                preview = str(data_preview)
+
+            logger.info(f"database query successful, returning preview: {preview}")
             return DatabaseResponse(**result_dict)
                 
         except Exception as e:
@@ -180,6 +190,14 @@ class MongoQueryExecutor:
         page = (skip // limit) + 1 if limit > 0 else 1
         total_pages = (total_count + limit - 1) // limit if limit > 0 else 1
         
+        if match_query.get("__block_all__"):
+            # Force empty result set
+            formatted_data = []
+            total_count = 0
+            page = 1
+            total_pages = 1
+            return build_pagination_response(formatted_data, total_count, page, limit, total_pages)
+
         return build_pagination_response(formatted_data, total_count, page, limit, total_pages)
 
     def _execute_distribution_query(self, query_result: QueryResult) -> Dict[str, Any]:
@@ -260,7 +278,7 @@ class MongoQueryExecutor:
                 pipeline.extend([
                     {"$unwind": f"${field_name}"},
                     {"$lookup": {
-                        "from": "category_attributes",
+                        "from": "category-attributes",
                         "localField": field_name,
                         "foreignField": "_id",
                         "as": "attr_info"

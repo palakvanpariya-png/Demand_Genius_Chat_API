@@ -195,8 +195,7 @@ def format_api_response(
     else:
         # For pure_advisory: minimal data
         api_response["data"] = {
-            "advisory": True,
-            "suggestions": getattr(chat_response, 'suggested_questions', [])
+            "advisory": True
         }
     
     # Always include these fields with safe access

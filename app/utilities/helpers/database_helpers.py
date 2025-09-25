@@ -12,7 +12,7 @@ def get_standardized_lookup_pipeline() -> List[Dict]:
         # Lookup category attributes with nested category information
         {
             "$lookup": {
-                "from": "category_attributes",
+                "from": "category-attributes",
                 "localField": "categoryAttribute",
                 "foreignField": "_id",
                 "as": "categoryAttribute",

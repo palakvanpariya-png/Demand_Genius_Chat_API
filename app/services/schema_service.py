@@ -36,7 +36,7 @@ class SchemaService:
             
             logger.info(f"Extracting fresh schema for tenant {tenant_id}")
             schema = self.extractor.extract_tenant_schema(tenant_id)
-            
+            logger.debug(f"Extracted schema for tenant {tenant_id}: {schema}")
             if use_cache:
                 self._schema_cache[tenant_id] = schema
                 

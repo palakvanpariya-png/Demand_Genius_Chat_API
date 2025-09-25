@@ -37,7 +37,7 @@ class SessionHandler:
         """No-op since we use centralized connection"""
         pass
     
-    def store_interaction(self, session_id: str, query: str, response: Dict, operation: str):
+    def store_interaction(self, session_id: str, query: str, response: Dict, operation: str, tenant_id: str):
         """
         Store interaction in MongoDB sessions collection
         Uses your existing InteractionRecord model structure
@@ -71,8 +71,7 @@ class SessionHandler:
                 "$setOnInsert": {
                     "session_id": session_id,
                     "created_at": datetime.utcnow(),
-                    "tenant_id": ""
-                    # Remove "interactions": [] line
+                    "tenant_id": tenant_id
                 }
             },
             upsert=True
@@ -109,6 +108,91 @@ class SessionHandler:
             return []
         finally:
             self._close_connection()
+
+    def get_recent_context_extended(self, session_id: str, limit: int = 4) -> List[Dict]:
+        """
+        Get recent conversation context with extended limit
+        NEW METHOD - doesn't break existing functionality
+        """
+        try:
+            db = self._get_db_connection()
+            
+            session_doc = db.sessions.find_one(
+                {"session_id": session_id},
+                {"interactions": {"$slice": -limit}}
+            )
+            
+            if not session_doc or not session_doc.get("interactions"):
+                return []
+            
+            return session_doc["interactions"]
+            
+        except Exception as e:
+            logger.error(f"Failed to get extended session context from MongoDB: {e}")
+            return []
+        finally:
+            self._close_connection()
+
+    def get_contextual_interactions(self, session_id: str, current_query: str, max_results: int = 3) -> List[Dict]:
+        """
+        Get contextually relevant interactions based on current query
+        NEW METHOD - uses simple keyword matching, no complex database operations
+        """
+        try:
+            # Get more interactions to filter from
+            recent_interactions = self.get_recent_context_extended(session_id, limit=max_results * 2)
+            
+            if not recent_interactions or len(recent_interactions) <= max_results:
+                return recent_interactions
+            
+            # Simple relevance scoring without additional database calls
+            return self._score_interactions_for_relevance(recent_interactions, current_query, max_results)
+            
+        except Exception as e:
+            logger.error(f"Failed to get contextual interactions: {e}")
+            # Fallback to existing method
+            return self.get_recent_context(session_id, limit=max_results)
+    
+    def _score_interactions_for_relevance(self, interactions: List[Dict], current_query: str, max_results: int) -> List[Dict]:
+        """
+        Score interactions for relevance using simple keyword matching
+        IN-MEMORY operation - no additional database calls
+        """
+        if len(interactions) <= max_results:
+            return interactions
+        
+        current_query_lower = current_query.lower()
+        current_words = set(current_query_lower.split())
+        
+        scored_interactions = []
+        
+        for interaction in interactions:
+            score = 0
+            message = interaction.get("message", "").lower()
+            message_words = set(message.split())
+            operation = interaction.get("operation", "")
+            
+            # Simple keyword overlap scoring
+            shared_words = current_words & message_words
+            score += len(shared_words) * 2
+            
+            # Operation continuity bonus
+            if operation in ["distribution", "semantic", "list"] and any(word in current_query_lower for word in ["analyze", "show", "content"]):
+                score += 1
+            
+            # Recency bonus (more recent = slightly higher score)
+            score += 0.1  # Small boost for chronological order
+            
+            scored_interactions.append((score, interaction))
+        
+        # Sort by score (descending) and return top N
+        scored_interactions.sort(key=lambda x: x[0], reverse=True)
+        relevant_interactions = [interaction for _, interaction in scored_interactions[:max_results]]
+        
+        # Maintain chronological order
+        relevant_interactions.sort(key=lambda x: x.get("timestamp", ""))
+        
+        return relevant_interactions
     
     def has_history(self, session_id: str) -> bool:
         """Check if session has conversation history in MongoDB"""
