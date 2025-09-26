@@ -58,9 +58,9 @@ class ContentResultsAgent(BaseAgent):
         data_results = context.get("data_results", {})
         
         # Handle conversational queries first
-        conversation_response = self._handle_conversational_query(query)
-        if conversation_response:
-            return conversation_response
+        # conversation_response = self._handle_conversational_query(query)
+        # if conversation_response:
+        #     return conversation_response
         
         # Build prompt directly from context - no extra processing
         prompt = self._build_content_prompt(query, data_results, context)
@@ -281,7 +281,9 @@ CATEGORY BREAKDOWN:
 {category_breakdown}
 
 RESPONSE STRICT RULES:
-1. Irrelevant/gibberish queries → "Your query does not seem related to content strategy or this dataset. Please ask a relevant question."
+1. If it related to Greeting or simple stuff which might be asking about your capabilities do not strictly give analysis with numbers yet just give specific answer according to the query; remember to understand the query and answer according to that.
+if it's only greeting greet them and ask them how you can help them?
+2. Irrelevant queries → "Your query does not seem related to content strategy or this dataset. Please ask a relevant question."
 2. Use previous context for coherent multi-turn responses
 3. Insufficient information → "I can give you this information based on my analysis, but if you provide a clearer question I can help you better"
 4. Add specifications and analysis only when asked otherwsie do give a brief overview of the content library without specific numbers
