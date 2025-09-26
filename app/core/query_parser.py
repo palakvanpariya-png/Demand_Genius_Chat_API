@@ -13,11 +13,9 @@ from ..models.query import QueryResult, FilterDict, DateFilter, Pagination
 from .schema_extractor import get_tenant_schema
 from ..utilities.token_calculator import log_token_usage
 
-# logger = logging.getLogger(__name__)
-
 class SmartQueryParser:
     """
-    Intelligent query parser that converts natural language to structured queries using OpenAI
+    Enhanced query parser with context support for handling vague references like "those", "that"
     """
     
     def __init__(self, mongo_uri: str = None, db_name: str = None, openai_api_key: str = None):
@@ -27,13 +25,14 @@ class SmartQueryParser:
         self._schema_cache: Dict[str, Dict] = {}
         self.max_schema_values = settings.MAX_SCHEMA_VALUES
     
-    def parse(self, query_text: str, tenant_id: str) -> QueryResult:
+    def parse(self, query_text: str, tenant_id: str, previous_queries: List[Dict] = None) -> QueryResult:
         """
-        Parse natural language query into structured QueryResult
+        Parse natural language query into structured QueryResult with context support
         
         Args:
             query_text: User's natural language query
             tenant_id: Tenant ID for schema context
+            previous_queries: List of previous parsed queries for context (NEW)
             
         Returns:
             QueryResult object with parsed query components
@@ -49,18 +48,206 @@ class SmartQueryParser:
             
         try:
             schema_data = self._get_cached_schema(tenant_id)
-            parsed = self._ai_parse(query_text, schema_data)
+            
+            # Enhanced: Parse with context
+            parsed = self._ai_parse_with_context(query_text, schema_data, previous_queries)
             
             # Convert parsed data to QueryResult using our models
-            return self._build_query_result(parsed, tenant_id)
+            query_result = self._build_query_result(parsed, tenant_id)
+            
+            # Log the parsed result for debugging
+            logger.info(f"Query parsed - operation: {query_result.operation}, filters: {query_result.filters}, confidence: {query_result.confidence}")
+            
+            return query_result
             
         except Exception as e:
             logger.error(f"Error parsing query '{query_text}' for tenant {tenant_id}: {e}")
             # Return fallback semantic search
             return self._get_fallback_query_result(query_text, tenant_id)
     
+    def _ai_parse_with_context(self, query_text: str, schema_data: Dict, previous_queries: List[Dict] = None) -> Dict:
+        """Enhanced AI parsing with context support"""
+        
+        # Check for large schema safeguard
+        summary = schema_data.get("summary", {})
+        total_values = summary.get("total_values", 0)
+        
+        if total_values > self.max_schema_values:
+            logger.info(f"Schema too large ({total_values} values), using dynamic handler")
+            return self._handle_large_schema(query_text, schema_data)
+        
+        # Build OpenAI function schema
+        categories = schema_data.get("categories", {})
+        tool_schema = self._build_openai_tool_schema(categories)
+        
+        # Enhanced: Build system message with context
+        system_message = self._build_system_message_with_context(categories, schema_data, query_text, previous_queries)
+        
+        # Prepare messages for token tracking
+        messages = [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": query_text}
+        ]
+        
+        # Retry logic with exponential backoff
+        max_retries = 3
+        base_delay = 1
+        
+        for attempt in range(max_retries):
+            try:
+                start_time = time.time()
+                
+                completion = self.client.chat.completions.create(
+                    model=settings.OPENAI_MODEL,
+                    messages=messages,
+                    tools=tool_schema,
+                    tool_choice={"type": "function", "function": {"name": "parse_query"}},
+                    temperature=settings.OPENAI_TEMPERATURE
+                )
+                
+                execution_time = time.time() - start_time
+                result = json.loads(completion.choices[0].message.tool_calls[0].function.arguments)
+                
+                # Track token usage for debugging
+                response_text = json.dumps(result)
+                log_token_usage(messages, response_text, execution_time, "contextual_query_parser")
+                
+                return result
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON parse error on attempt {attempt + 1}: {e}")
+                if attempt == max_retries - 1:
+                    return self._handle_large_schema(query_text, schema_data)
+                    
+            except Exception as e:
+                error_type = type(e).__name__
+                logger.error(f"API error ({error_type}) on attempt {attempt + 1}: {e}")
+                if attempt == max_retries - 1:
+                    return self._handle_large_schema(query_text, schema_data)
+            
+            # Exponential backoff
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                time.sleep(delay)
+        
+        # Fallback (should not reach here)
+        return self._handle_large_schema(query_text, schema_data)
+    
+    def _build_system_message_with_context(self, categories: Dict, schema_data: Dict, query_text: str, previous_queries: List[Dict] = None) -> str:
+        """Enhanced system message with context handling"""
+        
+        categories_context = json.dumps(categories, indent=2)
+        today = datetime.today().strftime("%Y-%m-%d")
+        
+        # Build context section
+        context_section = ""
+        if previous_queries and len(previous_queries) > 0:
+            context_section = "\n**PREVIOUS QUERIES CONTEXT:**\n"
+            
+            for i, prev_query in enumerate(previous_queries[-3:], 1):  # Last 3 queries
+                query = prev_query.get("original_query", "")
+                operation = prev_query.get("operation", "unknown")
+                filters = prev_query.get("filters", {})
+                
+                context_section += f"{i}. Query: \"{query}\"\n"
+                context_section += f"   Operation: {operation}\n"
+                
+                if filters:
+                    filters_str = []
+                    for cat, filter_dict in filters.items():
+                        if filter_dict.get("include"):
+                            filters_str.append(f"{cat}: {filter_dict['include']}")
+                    if filters_str:
+                        context_section += f"   Filters: {', '.join(filters_str)}\n"
+                context_section += "\n"
+            
+            context_section += "**CONTEXT RULES:**\n"
+            context_section += "- 'those', 'that', 'these' = inherit filters from most recent query with filters\n"
+            context_section += "- 'show me more' = inherit all parameters, adjust pagination\n"
+            context_section += "- 'distribution of those' = inherit filters, change operation to distribution\n\n"
+        
+        return f"""
+You are a contextual query parser that handles both explicit and contextual queries.
+
+{context_section}
+
+**CONTEXTUAL PARSING RULES:**
+1. If query contains "those", "that", "these", "them" - look at previous queries for context
+2. Find the most recent query that has filters applied
+3. INHERIT those exact filters for the current query
+4. Adapt the operation based on current query intent
+
+**STEP 1: ROUTE (Always "database" unless pure advisory)**
+- route: "database" = Query needs data from database
+- route: "advisory" = Pure strategic advice without data
+
+**STEP 2: OPERATION (Choose exactly ONE)**
+- `list` = User wants to SEE/SHOW specific content items
+Keywords: "show", "list", "find", "get", "display", "give me", "how many", "which ones"
+
+- `distribution` = User wants to ANALYZE/BREAK DOWN by categories
+Keywords: "distribution", "breakdown", "analyze", "what percentage"
+
+- `semantic` = User searches with DESCRIPTIVE terms (not exact category names)
+Keywords: topics/themes not in exact schema values
+
+- `pure_advisory` = User wants strategic advice or help
+Keywords: "help", "advice", "strategy", "what should I", "how can you"
+
+**STEP 3: CONFIDENCE**
+- "high" = Clear intent, specific request, or clear contextual reference
+- "medium" = Mostly clear intent
+- "low" = Vague or ambiguous
+
+**STEP 4: FILTERS (Context-aware)**
+- If contextual query ("those", "that", "these") → inherit filters from context above
+- If explicit filters mentioned → use those filters
+- If no context or explicit filters → empty filters
+- Only use exact schema values from categories below
+
+**STEP 5: OTHER FIELDS**
+- marketing_filter: inherit from context or detect from current query
+- is_negation: true only for "not X", "without Y"
+- semantic_terms: descriptive words for semantic search
+- needs_data: false only for pure advisory
+- distribution_fields: category names for distribution operation
+
+**EXAMPLES:**
+
+Context: Previous query had filters {{"Funnel Stage": {{"include": ["TOFU"]}}}}
+Current: "show me distribution of those"
+Result: operation="distribution", filters={{"Funnel Stage": {{"include": ["TOFU"]}}}}
+
+Context: No previous context
+Current: "show me TOFU content"
+Result: operation="list", filters={{"Funnel Stage": {{"include": ["TOFU"]}}}}
+
+**AVAILABLE CATEGORIES:**
+{categories_context}
+
+**TODAY:** {today}
+
+Return valid JSON matching the function schema exactly."""
+    
+    def to_dict(self, query_result: QueryResult, original_query: str) -> Dict:
+        """Convert QueryResult to dict for storage in session context"""
+        return {
+            "original_query": original_query,
+            "operation": query_result.operation,
+            "filters": {
+                k: {
+                    "include": v.include,
+                    "exclude": v.exclude
+                } for k, v in query_result.filters.items()
+            },
+            "confidence": query_result.confidence,
+            "route": query_result.route,
+            "needs_data": query_result.needs_data
+        }
+    
+    # All existing methods remain the same
     def _build_query_result(self, parsed: Dict, tenant_id: str) -> QueryResult:
-        """Convert parsed dictionary to QueryResult model"""
+        """Convert parsed dictionary to QueryResult model - UNCHANGED"""
         
         # Process filters with proper FilterDict structure
         filters = {}
@@ -111,11 +298,10 @@ class SmartQueryParser:
         )
     
     def _get_cached_schema(self, tenant_id: str) -> Dict:
-        """Get schema using centralized database connection"""
+        """Get schema using centralized database connection - UNCHANGED"""
         if tenant_id not in self._schema_cache:
-            # Use centralized connection instead of passing URIs
             from .schema_extractor import SchemaExtractor
-            extractor = SchemaExtractor()  # No need to pass mongo_uri, db_name
+            extractor = SchemaExtractor()
             schema_data = extractor.extract_tenant_schema(tenant_id)
             if not schema_data:
                 raise ValueError(f"Tenant {tenant_id} not found")
@@ -123,7 +309,7 @@ class SmartQueryParser:
         return self._schema_cache[tenant_id]
     
     def _get_fallback_query_result(self, query_text: str, tenant_id: str) -> QueryResult:
-        """Generate fallback QueryResult for error cases"""
+        """Generate fallback QueryResult for error cases - UNCHANGED"""
         return QueryResult(
             route="database",
             operation="semantic",
@@ -139,7 +325,7 @@ class SmartQueryParser:
         )
     
     def _handle_large_schema(self, query_text: str, schema_data: Dict) -> Dict:
-        """Handle queries for tenants with large schemas"""
+        """Handle queries for tenants with large schemas - UNCHANGED"""
         total_values = schema_data.get('summary', {}).get('total_values', 0)
         logger.info(f"Using fallback for large schema with {total_values} values")
         return {
@@ -155,81 +341,15 @@ class SmartQueryParser:
             "pagination": {"skip": 0, "limit": settings.DEFAULT_PAGE_SIZE}
         }
     
-    def _ai_parse(self, query_text: str, schema_data: Dict) -> Dict:
-        """Use OpenAI to parse natural language query with retry logic and token tracking"""
-        
-        # Check for large schema safeguard
-        summary = schema_data.get("summary", {})
-        total_values = summary.get("total_values", 0)
-        
-        if total_values > self.max_schema_values:
-            logger.info(f"Schema too large ({total_values} values), using dynamic handler")
-            return self._handle_large_schema(query_text, schema_data)
-        
-        # Build OpenAI function schema
-        categories = schema_data.get("categories", {})
-        tool_schema = self._build_openai_tool_schema(categories)
-        system_message = self._build_system_message(categories, schema_data, query_text)
-        
-        # Prepare messages for token tracking
-        messages = [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": query_text}
-        ]
-        
-        # Retry logic with exponential backoff
-        max_retries = 3
-        base_delay = 1
-        
-        for attempt in range(max_retries):
-            try:
-                start_time = time.time()
-                
-                completion = self.client.chat.completions.create(
-                    model=settings.OPENAI_MODEL,
-                    messages=messages,
-                    tools=tool_schema,
-                    tool_choice={"type": "function", "function": {"name": "parse_query"}},
-                    temperature=settings.OPENAI_TEMPERATURE
-                )
-                
-                execution_time = time.time() - start_time
-                result = json.loads(completion.choices[0].message.tool_calls[0].function.arguments)
-                
-                # Track token usage for debugging
-                response_text = json.dumps(result)  # Function call response
-                log_token_usage(messages, response_text, execution_time, "query_parser")
-                
-                return result
-                
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON parse error on attempt {attempt + 1}: {e}")
-                if attempt == max_retries - 1:
-                    return self._handle_large_schema(query_text, schema_data)
-                    
-            except Exception as e:
-                error_type = type(e).__name__
-                logger.error(f"API error ({error_type}) on attempt {attempt + 1}: {e}")
-                if attempt == max_retries - 1:
-                    return self._handle_large_schema(query_text, schema_data)
-            
-            # Exponential backoff
-            if attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt)
-                time.sleep(delay)
-        
-        # Fallback (should not reach here)
-        return self._handle_large_schema(query_text, schema_data)
-    
     def _build_openai_tool_schema(self, categories: Dict[str, List[str]]) -> List[Dict]:
-        """Build OpenAI function schema dynamically based on tenant categories"""
+        """Build OpenAI function schema dynamically based on tenant categories - UNCHANGED"""
         
         return [
             {
                 "type": "function",
                 "function": {
                     "name": "parse_query",
-                    "description": "Parse user queries into structured JSON for database routing.",
+                    "description": "Parse user queries into structured JSON for database routing with context support.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -314,79 +434,17 @@ class SmartQueryParser:
             }
         ]
     
-    def _build_system_message(self, categories: Dict, schema_data: Dict, query_text: str) -> str:
-        """
-        Clean, conflict-free system message for query parsing
-        Built step-by-step to match the exact OpenAI function schema
-        """
-        
-        categories_context = json.dumps(categories, indent=2)
-        today = datetime.today().strftime("%Y-%m-%d")
-        
-        return f"""
-    You are a query parser that converts natural language into structured database queries.
-    Parse queries using this step-by-step approach to avoid conflicts.
-
-    **STEP 1: ROUTE (Always "database" unless pure advisory)**
-    - route: "database" = Query needs data from database
-    - route: "advisory" = Pure strategic advice without data
-
-    **STEP 2: OPERATION (Choose exactly ONE)**
-    - `list` = User wants to SEE/SHOW specific content items
-    Keywords: "show", "list", "find", "get", "display", "give me", "how many", "which ones"
-    
-    - `distribution` = User wants to ANALYZE/BREAK DOWN by categories
-    Keywords: "distribution", "breakdown", "analyze", "what percentage"
-    
-    - `semantic` = User searches with DESCRIPTIVE terms (not exact category names)
-    Keywords: topics/themes not in exact schema values
-    
-    - `pure_advisory` = User wants strategic advice or help
-    Keywords: "help", "advice", "strategy", "what should I", "how can you"
-
-    **STEP 3: CONFIDENCE**
-    - "high" = Clear intent, specific request
-    - "medium" = Mostly clear intent  
-    - "low" = Vague or ambiguous
-
-    **STEP 4: FILTERS (Only use exact category values from schema)**
-    Match user terms to exact schema values. Use empty objects if no matches.
-    Example: "TOFU content" → {{"Funnel Stage": {{"include": ["TOFU"], "exclude": []}}}}
-
-    **STEP 5: PAGINATION**
-    - Default: {{"skip": 0, "limit": {settings.DEFAULT_PAGE_SIZE}}}
-    - "top N": {{"skip": 0, "limit": N}}
-
-    **STEP 6: OTHER FIELDS**
-    - marketing_filter: true (marketing mentioned), false (non-marketing), null (not mentioned)
-    - is_negation: true only for "not X", "without Y"
-    - semantic_terms: descriptive words for semantic search
-    - needs_data: false only for pure advisory
-    - distribution_fields: category names for distribution operation
-
-    **CRITICAL RULES:**
-    1. If operation is "distribution", MUST include distribution_fields
-    2. Use exact schema values only - never invent new ones
-    3. Default to simple interpretations, avoid over-complicating
-
-    **AVAILABLE CATEGORIES:**
-    {categories_context}
-
-    **TODAY:** {today}
-
-    Return valid JSON matching the function schema exactly. """
-    
     def clear_cache(self):
-        """Clear schema cache"""
+        """Clear schema cache - UNCHANGED"""
         self._schema_cache.clear()
         logger.info("Query parser schema cache cleared")
 
-# Factory function for dependency injection
+# Factory function for dependency injection - UNCHANGED
 def create_smart_parser(mongo_uri: str = None, db_name: str = None, openai_api_key: str = None) -> SmartQueryParser:
     """Create SmartQueryParser instance"""
     return SmartQueryParser(mongo_uri, db_name, openai_api_key)
 
-# Global parser instance for backward compatibility
+# Global parser instance for backward compatibility - UNCHANGED
 _parser_instance = None
 
 def get_query_parser() -> SmartQueryParser:

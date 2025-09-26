@@ -1,16 +1,13 @@
-# app/services/chat_service.py
+# app/services/chat_service.py - Enhanced with context support
 """
-Updated ChatService with Simple Orchestrator Integration
-Now using optimized single API call orchestration
+Enhanced ChatService that supports contextual query parsing
 """
 
-from typing import Dict, Any, Optional, List, AsyncGenerator
-import logging
+from typing import Dict, Any, Optional, List
 from loguru import logger
 
 from ..core.query_parser import SmartQueryParser
 from ..core.query_builder import MongoQueryExecutor
-# Import the new simple orchestrator
 from ..core.advisory.advisor_manager import AdvisoryOrchestrator
 
 from ..services.schema_service import schema_service
@@ -23,15 +20,12 @@ from ..models.advisory import SessionStatsResponse
 from ..config.settings import settings
 
 class ChatService:
-    """
-    Main chat service with Simple Orchestrator integration for optimized performance
-    Maintains your proven data flow while using direct routing for better latency
-    """
+    """Enhanced chat service with contextual query parsing support"""
     
     def __init__(self):
-        self.query_parser = SmartQueryParser()  # PRESERVED - no changes to query parsing
-        self.query_executor = MongoQueryExecutor()  # PRESERVED - no changes to data retrieval
-        self.advisor = AdvisoryOrchestrator()  # UPDATED - now uses Simple Orchestrator
+        self.query_parser = SmartQueryParser()
+        self.query_executor = MongoQueryExecutor()
+        self.advisor = AdvisoryOrchestrator()
         
     async def process_chat_message(
         self,
@@ -39,22 +33,24 @@ class ChatService:
         tenant_id: str,
         session_id: Optional[str] = None
     ) -> ChatResponse:
-        """
-        Process complete chat pipeline with Simple Orchestrator integration
-        MAINTAINS your existing interface and flow with improved performance
-        """
+        """Enhanced chat processing with contextual query parsing"""
         try:
-            # Step 1: Parse query (UNCHANGED from your flow)
-            logger.info(f"Parsing query for tenant {tenant_id}: {message[:50]}...")
-            query_result = self.query_parser.parse(message, tenant_id)
-            logger.info(f"Parsed query result: {query_result}")
+            # Step 1: Get previous query context if session exists
+            previous_queries = []
+            if session_id:
+                previous_queries = self.advisor.session_handler.get_parsed_query_context(session_id, limit=3)
+                logger.debug(f"Retrieved {len(previous_queries)} previous queries for context")
             
-            # Step 2: Get tenant schema (UNCHANGED)
+            # Step 2: Parse query WITH context
+            logger.info(f"Parsing contextual query for tenant {tenant_id}: {message[:50]}...")
+            query_result = self.query_parser.parse(message, tenant_id, previous_queries)
+            logger.info(f"Parsed result: operation={query_result.operation}, confidence={query_result.confidence}, filters={query_result.filters}")
+            
+            # Step 3: Get tenant schema
             logger.info("Fetching tenant schema")
             tenant_schema = await schema_service.get_tenant_schema(tenant_id)
-            logger.debug(f"Tenant schema: {tenant_schema}")
             
-            # Step 4: Execute query if data needed (UNCHANGED from your flow)
+            # Step 4: Execute query if data needed
             if query_result.needs_data or query_result.operation != "pure_advisory":
                 logger.info(f"Executing {query_result.operation} query")
                 db_response = self.query_executor.execute_query_from_result(query_result)
@@ -67,8 +63,8 @@ class ChatService:
                     operation=query_result.operation
                 )
             
-            # Step 5: Generate advisory response using Simple Orchestrator (UPDATED - single call)
-            logger.info("Generating advisory insights with Simple Orchestrator (optimized)")
+            # Step 5: Generate advisory response
+            logger.info("Generating advisory insights")
             advisory_response_dict = self.advisor.generate_response(
                 operation=query_result.operation,
                 query_result=query_result,
@@ -79,16 +75,30 @@ class ChatService:
                 tenant_id=tenant_id
             )
             
-            # Step 6: Keep existing session service for compatibility (UNCHANGED)
+            # Step 6: Store session interaction WITH parsed query context
             if session_id:
+                # Convert query_result to dict for storage
+                parsed_query_dict = self.query_parser.to_dict(query_result, message)
+                
+                # Store in in-memory session service
                 await session_service.store_interaction(
                     session_id=session_id,
                     tenant_id=tenant_id,
                     message=message,
                     response=advisory_response_dict
                 )
+                
+                # Store in MongoDB with parsed query context
+                self.advisor.session_handler.store_interaction(
+                    session_id=session_id,
+                    query=message,
+                    response=advisory_response_dict,
+                    operation=query_result.operation,
+                    tenant_id=tenant_id,
+                    parsed_query_dict=parsed_query_dict  # NEW: Store parsed query for context
+                )
             
-            # Step 7: Create response using your models (UNCHANGED)
+            # Step 7: Create response
             response = ChatResponse(
                 success=True,
                 response=advisory_response_dict["response"],
@@ -100,7 +110,7 @@ class ChatService:
                 db_response=db_response
             )
             
-            logger.info(f"Chat processing completed with Simple Orchestrator (60-70% faster)")
+            logger.info(f"Contextual chat processing completed successfully")
             return response
             
         except Exception as e:
@@ -118,31 +128,9 @@ class ChatService:
                 operation="error",
                 session_id=session_id
             )
-    
-   
-    def _generate_suggestions(self, operation: str) -> List[str]:
-        """Generate suggestions based on operation type"""
-        if operation in ["list", "semantic"]:
-            return [
-                "How is this content distributed across categories?",
-                "What gaps exist in this content area?",
-                "Show me performance metrics for these results"
-            ]
-        elif operation == "distribution":
-            return [
-                "Show me specific content in underrepresented categories",
-                "What topics are missing in my top categories?",
-                "How can I rebalance this distribution?"
-            ]
-        else:
-            return [
-                "How should I optimize my content strategy?",
-                "What's the best approach for content gap analysis?",
-                "Create a content planning roadmap"
-            ]
-    
+
     def _create_data_summary(self, db_response: DatabaseResponse) -> DataSummary:
-        """Create summary of database response using model - UNCHANGED"""
+        """Create summary of database response - UNCHANGED"""
         if not db_response.success:
             return DataSummary(
                 type="error",
@@ -175,9 +163,9 @@ class ChatService:
                 operation=db_response.operation
             )
     
-    # EXISTING METHODS - UPDATED to use Simple Orchestrator
+    # All existing methods remain the same
     async def get_session_history(self, session_id: str, tenant_id: str) -> Optional[SessionInfo]:
-        """Get session history using existing SessionInfo model"""
+        """Get session history - UNCHANGED"""
         try:
             session_info = self.advisor.session_handler.get_session_info(session_id, tenant_id)
             return session_info
@@ -186,7 +174,7 @@ class ChatService:
             return None
     
     async def cleanup_old_sessions(self, max_age_hours: int = 72) -> int:
-        """Clean up old sessions from MongoDB"""
+        """Clean up old sessions - UNCHANGED"""
         try:
             return self.advisor.session_handler.cleanup_old_sessions(max_age_hours)
         except Exception as e:
@@ -194,7 +182,7 @@ class ChatService:
             return 0
     
     def get_session_stats(self) -> SessionStatsResponse:
-        """Get session statistics using model"""
+        """Get session statistics - UNCHANGED"""
         try:
             stats_dict = self.advisor.get_session_stats()
             return SessionStatsResponse(
@@ -204,7 +192,7 @@ class ChatService:
                 mongodb_sessions=True,
                 dual_session_storage=True,
                 storage_type=stats_dict.get("storage_type"),
-                orchestrator_type="simple_direct_routing"  # NEW - indicates optimization
+                orchestrator_type="contextual_query_parsing"  # Updated to indicate enhancement
             )
         except Exception as e:
             logger.error(f"Failed to get session stats: {e}")
