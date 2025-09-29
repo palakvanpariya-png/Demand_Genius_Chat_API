@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from loguru import logger
-from .config.settings import settings, validate_settings
+from .config.setting import settings, validate_settings
 from .config.database import db_connection
 from .api.routes import health, chat
 # Import debug routes only in debug mode

@@ -27,3 +27,4 @@ class QueryResult(BaseModel):
     needs_data: bool
     distribution_fields: List[str] = Field(default_factory=list)
     pagination: Pagination = Field(default_factory=Pagination)
+    description: Optional[str] = None

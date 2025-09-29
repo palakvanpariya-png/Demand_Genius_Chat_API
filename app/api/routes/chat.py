@@ -11,7 +11,7 @@ from ...utilities.helpers.data_formatters import format_api_response, format_err
 from ...services.chat_service import chat_service
 from ...services.session_service import session_service
 from ...core.schema_extractor import get_tenant_schema
-from ...config.settings import settings
+from ...config.setting import settings
 from ...securities.jwt import get_current_user, JWTAccount
 
 router = APIRouter()

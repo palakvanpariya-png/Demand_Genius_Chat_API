@@ -7,7 +7,7 @@ from datetime import datetime
 import logging
 from loguru import logger
 
-from ..config.settings import settings
+from ..config.setting import settings
 from ..config.database import db_connection
 from ..models.query import QueryResult, FilterDict, DateFilter, Pagination
 from ..models.database import DatabaseResponse

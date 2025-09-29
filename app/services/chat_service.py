@@ -1,6 +1,7 @@
-# app/services/chat_service.py - Enhanced with context support
+# app/services/chat_service.py
 """
-Enhanced ChatService that supports contextual query parsing
+OPTIONAL UPDATE: How to pass conversation context to parser
+You can implement this later when ready to enable context awareness
 """
 
 from typing import Dict, Any, Optional, List
@@ -9,18 +10,18 @@ from loguru import logger
 from ..core.query_parser import SmartQueryParser
 from ..core.query_builder import MongoQueryExecutor
 from ..core.advisory.advisor_manager import AdvisoryOrchestrator
-
 from ..services.schema_service import schema_service
 from ..services.session_service import session_service
 from ..models.query import QueryResult
 from ..models.database import DatabaseResponse
 from ..models.chat import ChatResponse, DataSummary
-from ..models.session import SessionInfo, InteractionRecord
-from ..models.advisory import SessionStatsResponse
-from ..config.settings import settings
+from ..config.setting import settings
+
 
 class ChatService:
-    """Enhanced chat service with contextual query parsing support"""
+    """
+    Main chat service with optional context-aware parsing
+    """
     
     def __init__(self):
         self.query_parser = SmartQueryParser()
@@ -33,24 +34,33 @@ class ChatService:
         tenant_id: str,
         session_id: Optional[str] = None
     ) -> ChatResponse:
-        """Enhanced chat processing with contextual query parsing"""
+        """
+        Process complete chat pipeline with optional context awareness
+        """
         try:
-            # Step 1: Get previous query context if session exists
-            previous_queries = []
+            # OPTIONAL: Get conversation context for parser
+            conversation_history = None
             if session_id:
-                previous_queries = self.advisor.session_handler.get_parsed_query_context(session_id, limit=3)
-                logger.debug(f"Retrieved {len(previous_queries)} previous queries for context")
+                conversation_history = await self._get_parsing_context(session_id)
             
-            # Step 2: Parse query WITH context
-            logger.info(f"Parsing contextual query for tenant {tenant_id}: {message[:50]}...")
-            query_result = self.query_parser.parse(message, tenant_id, previous_queries)
-            logger.info(f"Parsed result: operation={query_result.operation}, confidence={query_result.confidence}, filters={query_result.filters}")
+            # Step 1: Parse query WITH CONTEXT (if available)
+            logger.info(f"Parsing query for tenant {tenant_id}: {message[:50]}...")
+            query_result = self.query_parser.parse(
+                message, 
+                tenant_id,
+                conversation_history  # NEW: Pass context to parser
+            )
+            logger.info(f"Parsed query result: {query_result}")
             
-            # Step 3: Get tenant schema
+            # Log the generated description
+            if query_result.description:
+                logger.info(f"Query description: {query_result.description}")
+            
+            # Step 2: Get tenant schema (UNCHANGED)
             logger.info("Fetching tenant schema")
             tenant_schema = await schema_service.get_tenant_schema(tenant_id)
             
-            # Step 4: Execute query if data needed
+            # Step 3: Execute query if data needed (UNCHANGED)
             if query_result.needs_data or query_result.operation != "pure_advisory":
                 logger.info(f"Executing {query_result.operation} query")
                 db_response = self.query_executor.execute_query_from_result(query_result)
@@ -63,7 +73,7 @@ class ChatService:
                     operation=query_result.operation
                 )
             
-            # Step 5: Generate advisory response
+            # Step 4: Generate advisory response (UNCHANGED)
             logger.info("Generating advisory insights")
             advisory_response_dict = self.advisor.generate_response(
                 operation=query_result.operation,
@@ -75,30 +85,17 @@ class ChatService:
                 tenant_id=tenant_id
             )
             
-            # Step 6: Store session interaction WITH parsed query context
+            # Step 5: Store interaction WITH PARSED RESULT for future context
             if session_id:
-                # Convert query_result to dict for storage
-                parsed_query_dict = self.query_parser.to_dict(query_result, message)
-                
-                # Store in in-memory session service
-                await session_service.store_interaction(
+                await self._store_interaction_with_context(
                     session_id=session_id,
                     tenant_id=tenant_id,
                     message=message,
-                    response=advisory_response_dict
-                )
-                
-                # Store in MongoDB with parsed query context
-                self.advisor.session_handler.store_interaction(
-                    session_id=session_id,
-                    query=message,
                     response=advisory_response_dict,
-                    operation=query_result.operation,
-                    tenant_id=tenant_id,
-                    parsed_query_dict=parsed_query_dict  # NEW: Store parsed query for context
+                    query_result=query_result  # NEW: Store parsed result
                 )
             
-            # Step 7: Create response
+            # Step 6: Create response (UNCHANGED)
             response = ChatResponse(
                 success=True,
                 response=advisory_response_dict["response"],
@@ -110,7 +107,7 @@ class ChatService:
                 db_response=db_response
             )
             
-            logger.info(f"Contextual chat processing completed successfully")
+            logger.info(f"Chat processing completed")
             return response
             
         except Exception as e:
@@ -128,9 +125,91 @@ class ChatService:
                 operation="error",
                 session_id=session_id
             )
-
+    
+    async def _get_parsing_context(self, session_id: str) -> List[Dict]:
+        """
+        NEW METHOD: Get last 2 queries and their parsed results for context
+        
+        Args:
+            session_id: Session ID to retrieve context from
+            
+        Returns:
+            List of dicts with query and parsed_result
+        """
+        try:
+            # Get recent interactions from session handler
+            # We need last 2 interactions for context
+            recent_interactions = self.advisor.session_handler.get_recent_context(
+                session_id, 
+                limit=2
+            )
+            
+            if not recent_interactions:
+                return None
+            
+            # Format for parser
+            context = []
+            for interaction in recent_interactions:
+                # Only include if we have the parsed result stored
+                parsed_result = interaction.get("parsed_result")
+                if parsed_result:
+                    context.append({
+                        "query": interaction.get("message", ""),
+                        "parsed_result": parsed_result
+                    })
+            
+            return context if context else None
+            
+        except Exception as e:
+            logger.error(f"Failed to get parsing context: {e}")
+            return None
+    
+    async def _store_interaction_with_context(
+    self,
+    session_id: str,
+    tenant_id: str,
+    message: str,
+    response: Dict[str, Any],
+    query_result: QueryResult
+):
+        """
+        Store interaction with full parsed result for future context
+        """
+        try:
+            # Convert QueryResult to dict for storage
+            # Match the structure expected by session_handler
+            parsed_result_dict = {
+                "operation": query_result.operation,
+                "filters": {
+                    k: {
+                        "include": v.include, 
+                        "exclude": v.exclude
+                    } 
+                    for k, v in query_result.filters.items()
+                },
+                "description": query_result.description,
+                "route": query_result.route,
+                "confidence": query_result.confidence,
+                "semantic_terms": query_result.semantic_terms
+            }
+            
+            # Store in session handler WITH parsed result
+            self.advisor.session_handler.store_interaction(
+                session_id=session_id,
+                query=message,
+                response=response,
+                operation=query_result.operation,
+                tenant_id=tenant_id,
+                parsed_result=parsed_result_dict  # ✅ NOW PASSING IT
+            )
+            
+            logger.debug(f"Stored interaction with parsed result for session {session_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to store interaction with context: {e}")
+    
     def _create_data_summary(self, db_response: DatabaseResponse) -> DataSummary:
-        """Create summary of database response - UNCHANGED"""
+        """Create summary of database response using model - UNCHANGED"""
         if not db_response.success:
             return DataSummary(
                 type="error",
@@ -162,41 +241,6 @@ class ChatService:
                 type="unknown",
                 operation=db_response.operation
             )
-    
-    # All existing methods remain the same
-    async def get_session_history(self, session_id: str, tenant_id: str) -> Optional[SessionInfo]:
-        """Get session history - UNCHANGED"""
-        try:
-            session_info = self.advisor.session_handler.get_session_info(session_id, tenant_id)
-            return session_info
-        except Exception as e:
-            logger.error(f"Failed to get session history: {e}")
-            return None
-    
-    async def cleanup_old_sessions(self, max_age_hours: int = 72) -> int:
-        """Clean up old sessions - UNCHANGED"""
-        try:
-            return self.advisor.session_handler.cleanup_old_sessions(max_age_hours)
-        except Exception as e:
-            logger.error(f"Failed to cleanup sessions: {e}")
-            return 0
-    
-    def get_session_stats(self) -> SessionStatsResponse:
-        """Get session statistics - UNCHANGED"""
-        try:
-            stats_dict = self.advisor.get_session_stats()
-            return SessionStatsResponse(
-                total_sessions=stats_dict.get("total_sessions", 0),
-                total_interactions=stats_dict.get("total_interactions", 0),
-                active_sessions_24h=stats_dict.get("active_sessions_24h"),
-                mongodb_sessions=True,
-                dual_session_storage=True,
-                storage_type=stats_dict.get("storage_type"),
-                orchestrator_type="contextual_query_parsing"  # Updated to indicate enhancement
-            )
-        except Exception as e:
-            logger.error(f"Failed to get session stats: {e}")
-            return SessionStatsResponse()
 
-# Global service instance - UNCHANGED
+# Global service instance
 chat_service = ChatService()

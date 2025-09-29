@@ -18,7 +18,7 @@ from ..models.advisory import (
      SessionStatsResponse, PerformanceMetrics, 
     AdvisoryHealthResponse, ConfidenceLevel, HealthStatus
 )
-from ..config.settings import settings
+from ..config.setting import settings
 
 
 class AdvisoryService:

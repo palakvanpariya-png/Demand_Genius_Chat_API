@@ -6,7 +6,7 @@ import logging
 import time
 from loguru import logger
 from ..config.database import db_connection
-from ..config.settings import settings
+from ..config.setting import settings
 
 class SchemaExtractor:
     """

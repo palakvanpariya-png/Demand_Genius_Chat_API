@@ -4,7 +4,7 @@ from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 import logging
 from loguru import logger
 
-from .settings import settings
+from .setting import settings
 
 class DatabaseConnection:
     """MongoDB connection manager"""

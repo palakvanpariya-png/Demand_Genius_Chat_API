@@ -11,7 +11,7 @@ import time
 from loguru import logger
 from openai import OpenAI
 
-from ...config.settings import settings
+from ...config.setting import settings
 from ...utilities.token_calculator import log_token_usage
 
 

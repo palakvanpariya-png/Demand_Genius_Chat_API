@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional, List
 from loguru import logger
 from openai import OpenAI
 
-from ...config.settings import settings
+from ...config.setting import settings
 from ...models.query import QueryResult
 from ...models.database import DatabaseResponse
 from .context_manager import DataProcessor

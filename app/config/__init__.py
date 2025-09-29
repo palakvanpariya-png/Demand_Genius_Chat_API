@@ -1,5 +1,5 @@
 # app/config/__init__.py
-from .settings import settings, validate_settings
+from .setting import settings, validate_settings
 from .database import db_connection, get_database, get_mongo_client
 
 __all__ = [

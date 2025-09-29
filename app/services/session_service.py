@@ -6,7 +6,7 @@ import logging
 from loguru import logger
 
 from ..models.session import SessionInfo, InteractionRecord
-from ..config.settings import settings
+from ..config.setting import settings
 
 # logger = logging.getLogger(__name__)
 

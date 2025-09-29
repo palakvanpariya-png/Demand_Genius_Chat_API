@@ -1,7 +1,7 @@
 # app/utils/logger.py
 import logging
 import sys
-from ..config.settings import settings
+from ..config.setting import settings
 
 def setup_logger():
     return 

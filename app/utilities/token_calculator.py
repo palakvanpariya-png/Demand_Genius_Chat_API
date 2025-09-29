@@ -10,7 +10,7 @@ from loguru import logger
 import time
 from functools import wraps
 
-from ..config.settings import settings
+from ..config.setting import settings
 
 
 class TokenCalculator:

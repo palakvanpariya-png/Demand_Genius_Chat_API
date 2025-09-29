@@ -53,7 +53,7 @@ async def readiness_check() -> Dict[str, Any]:
 async def detailed_status() -> Dict[str, Any]:
     """Detailed system status"""
     try:
-        from ...config.settings import settings
+        from ...config.setting import settings
         
         # Check database
         db_status = "connected" if db_connection.health_check() else "disconnected"

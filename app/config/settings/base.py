@@ -1,86 +1,94 @@
+# app/config/settings/base.py
 import logging
 import pathlib
-from decouple import config  # Importing decouple's config function
-
-import pydantic
-from pydantic_settings import BaseSettings  # Correct import for BaseSettings
+from decouple import config
+from pydantic_settings import BaseSettings
 from typing import Optional
 
-
-ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.parent.parent.resolve()
+ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.parent.resolve()
 
 class BackendBaseSettings(BaseSettings):
-    TITLE: str = "DAPSQL FARN-Stack Template Application"
-    VERSION: str = "0.1.0"
+    """
+    Base settings - contains ALL configurations from your working settings.py
+    This is the single source of truth that can be overridden by environment-specific configs
+    """
+    
+    # Application Metadata
+    TITLE: str = "Content Intelligence API"
+    VERSION: str = "1.0.0"
     TIMEZONE: str = "UTC"
-    DESCRIPTION: Optional[str] = None
-    DEBUG: bool = False
-
-    SERVER_HOST: str = config("BACKEND_SERVER_HOST", default="127.0.0.1",cast=str)
-    SERVER_PORT: int = config("BACKEND_SERVER_PORT",default=8000, cast=int)
-    SERVER_WORKERS: int = config("BACKEND_SERVER_WORKERS", cast=int)
+    DESCRIPTION: Optional[str] = "Natural language content analysis chatbot"
+    DEBUG: bool = config("DEBUG", default=False, cast=bool)
+    
+    # Server Configuration
+    SERVER_HOST: str = config("API_HOST", default="0.0.0.0", cast=str)
+    SERVER_PORT: int = config("API_PORT", default=8000, cast=int)
     API_PREFIX: str = "/api"
     DOCS_URL: str = "/docs"
     OPENAPI_URL: str = "/openapi.json"
     REDOC_URL: str = "/redoc"
-    OPENAPI_PREFIX: str = ""
-
-    DB_POSTGRES_HOST: str = config("POSTGRES_HOST", cast=str)
-    DB_MAX_POOL_CON: int = config("DB_MAX_POOL_CON", cast=int)
-    DB_POSTGRES_NAME: str = config("POSTGRES_DB", cast=str)
-    DB_POSTGRES_PASSWORD: str = config("POSTGRES_PASSWORD", cast=str)
-    DB_POOL_SIZE: int = config("DB_POOL_SIZE", cast=int)
-    DB_POOL_OVERFLOW: int = config("DB_POOL_OVERFLOW", cast=int)
-    DB_POSTGRES_PORT: int = config("POSTGRES_PORT", cast=int)
-    DB_POSTGRES_SCHEMA: str = config("POSTGRES_SCHEMA", cast=str)
-    DB_TIMEOUT: int = config("DB_TIMEOUT", cast=int)
-    DB_POSTGRES_USERNAME: str = config("POSTGRES_USERNAME", cast=str)
-
-    IS_DB_ECHO_LOG: bool = config("IS_DB_ECHO_LOG", cast=bool)
-    IS_DB_FORCE_ROLLBACK: bool = config("IS_DB_FORCE_ROLLBACK", cast=bool)
-    IS_DB_EXPIRE_ON_COMMIT: bool = config("IS_DB_EXPIRE_ON_COMMIT", cast=bool)
-
-    API_TOKEN: str = config("API_TOKEN", cast=str)
-    AUTH_TOKEN: str = config("AUTH_TOKEN", cast=str)
-    JWT_TOKEN_PREFIX: str = config("JWT_TOKEN_PREFIX", cast=str)
-    JWT_SECRET_KEY: str = config("JWT_SECRET_KEY", cast=str)
-    JWT_SUBJECT: str = config("JWT_SUBJECT", cast=str)
-    JWT_MIN: int = config("JWT_MIN", cast=int)
-    JWT_HOUR: int = config("JWT_HOUR", cast=int)
-    JWT_DAY: int = config("JWT_DAY", cast=int)
-    JWT_ACCESS_TOKEN_EXPIRATION_TIME: int = JWT_MIN * JWT_HOUR * JWT_DAY
-
-    IS_ALLOWED_CREDENTIALS: bool = config("IS_ALLOWED_CREDENTIALS", cast=bool)
-    ALLOWED_ORIGINS: list[str] = [
-        "http://localhost:3000",  # React default port
-        "http://0.0.0.0:3000",
-        "http://127.0.0.1:3000",  # React docker port
-        "http://127.0.0.1:3001",
-        "http://localhost:5173",  # Qwik default port
-        "http://0.0.0.0:5173",
-        "http://127.0.0.1:5173",  # Qwik docker port
-        "http://127.0.0.1:5174",
-    ]
-    ALLOWED_METHODS: list[str] = ["*"]
-    ALLOWED_HEADERS: list[str] = ["*"]
-
+    
+    # MongoDB Configuration (Your current setup)
+    MONGODB_URI: str = config("MONGODB_URI", default="mongodb+srv://openxcelldev:VDevkdbh8RM0RXDl@clusterox.a54ut1v.mongodb.net/demand-genius")
+    DATABASE_NAME: str = config("DATABASE_NAME", default="demand-genius")
+    
+    # OpenAI Configuration (Your current setup)
+    OPENAI_API_KEY: str = config("OPENAI_API_KEY", default="")
+    OPENAI_MODEL: str = config("OPENAI_MODEL", default="gpt-4o")
+    OPENAI_TEMPERATURE: float = config("OPENAI_TEMPERATURE", default=0.0, cast=float)
+    
+    # JWT Configuration (Your current setup)
+    JWT_SECRET_KEY: str = config("JWT_SECRET_KEY")
+    JWT_ALGORITHM: str = config("JWT_ALGORITHM", default="HS256")
+    SECRET_KEY: str = config("SECRET_KEY", default="your-secret-key-change-in-production")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = config("ACCESS_TOKEN_EXPIRE_MINUTES", default=30, cast=int)
+    
+    # Redis Configuration (Your current setup)
+    REDIS_URL: Optional[str] = config("REDIS_URL", default=None)
+    REDIS_TTL_HOURS: int = config("REDIS_TTL_HOURS", default=24, cast=int)
+    
+    # CORS Configuration (Your current setup)
+    CORS_ORIGINS: list = ["*"]
+    CORS_ALLOW_CREDENTIALS: bool = True
+    CORS_ALLOW_METHODS: list = ["*"]
+    CORS_ALLOW_HEADERS: list = ["*"]
+    
+    # Logging Configuration
+    LOG_LEVEL: str = config("LOG_LEVEL", default="INFO")
+    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     LOGGING_LEVEL: int = logging.INFO
-    LOGGERS: tuple[str, str] = ("uvicorn.asgi", "uvicorn.access")
-
-    HASHING_ALGORITHM_LAYER_1: str = config("HASHING_ALGORITHM_LAYER_1", cast=str)
-    HASHING_ALGORITHM_LAYER_2: str = config("HASHING_ALGORITHM_LAYER_2", cast=str)
-    HASHING_SALT: str = config("HASHING_SALT", cast=str)
-    JWT_ALGORITHM: str = config("JWT_ALGORITHM", cast=str)
-
-    class Config(pydantic.BaseConfig):
+    
+    # Rate Limiting (Your current setup)
+    RATE_LIMIT_REQUESTS: int = config("RATE_LIMIT_REQUESTS", default=60, cast=int)
+    RATE_LIMIT_WINDOW: int = config("RATE_LIMIT_WINDOW", default=60, cast=int)
+    
+    # Query Processing Configuration (Your current setup)
+    MAX_QUERY_LENGTH: int = config("MAX_QUERY_LENGTH", default=1000, cast=int)
+    MAX_SCHEMA_VALUES: int = config("MAX_SCHEMA_VALUES", default=5000, cast=int)
+    DEFAULT_PAGE_SIZE: int = config("DEFAULT_PAGE_SIZE", default=50, cast=int)
+    MAX_PAGE_SIZE: int = config("MAX_PAGE_SIZE", default=200, cast=int)
+    
+    # Session Configuration (Your current setup)
+    MAX_SESSION_INTERACTIONS: int = config("MAX_SESSION_INTERACTIONS", default=10, cast=int)
+    SESSION_CLEANUP_INTERVAL: int = config("SESSION_CLEANUP_INTERVAL", default=3600, cast=int)
+    
+    # API Configuration
+    API_TITLE: str = TITLE
+    API_DESCRIPTION: str = DESCRIPTION or "Natural language content analysis chatbot"
+    API_VERSION: str = VERSION
+    API_HOST: str = SERVER_HOST
+    API_PORT: int = SERVER_PORT
+    
+    class Config:
         case_sensitive: bool = True
         env_file: str = f"{str(ROOT_DIR)}/.env"
+        env_file_encoding: str = "utf-8"
         validate_assignment: bool = True
-
+    
     @property
     def set_backend_app_attributes(self) -> dict[str, str | bool | None]:
         """
-        Set all `FastAPI` class' attributes with the custom values defined in `BackendBaseSettings`.
+        FastAPI application attributes
         """
         return {
             "title": self.TITLE,
@@ -90,6 +98,5 @@ class BackendBaseSettings(BaseSettings):
             "docs_url": self.DOCS_URL,
             "openapi_url": self.OPENAPI_URL,
             "redoc_url": self.REDOC_URL,
-            "openapi_prefix": self.OPENAPI_PREFIX,
             "api_prefix": self.API_PREFIX,
         }

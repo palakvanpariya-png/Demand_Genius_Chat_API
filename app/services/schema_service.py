@@ -4,7 +4,7 @@ import logging
 from loguru import logger
 
 from ..core.schema_extractor import SchemaExtractor
-from ..config.settings import settings
+from ..config.setting import settings
 
 # logger = logging.getLogger(__name__)
 
