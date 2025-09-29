@@ -1,59 +1,48 @@
 # app/api/dependencies.py
 from fastapi import Header, HTTPException, Depends
 from typing import Optional
-import logging
 from loguru import logger
 
 from ..config.database import get_database, get_mongo_client
 from ..services.schema_service import schema_service
+from ..services.auth_validation_service import auth_validation_service
+from ..middleware.jwt import JWTAccount , get_current_user # ✅ Fixed import
 
-# logger = logging.getLogger(__name__)
 
-async def get_tenant_id(x_tenant_id: Optional[str] = Header(None)) -> str:
+async def validate_user_access(
+    current_user: JWTAccount = Depends(get_current_user)  # ✅ CRITICAL FIX
+) -> JWTAccount:
     """
-    Extract and validate tenant ID from request headers
-    
-    Args:
-        x_tenant_id: Tenant ID from X-Tenant-ID header
-        
-    Returns:
-        Validated tenant ID
-        
-    Raises:
-        HTTPException: If tenant ID is missing or invalid
+    Comprehensive validation dependency
     """
-    if not x_tenant_id:
-        raise HTTPException(
-            status_code=400,
-            detail="X-Tenant-ID header is required"
-        )
-    
-    if not x_tenant_id.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="X-Tenant-ID cannot be empty"
-        )
-    
-    # Validate tenant exists and has content
     try:
-        tenant_exists = await schema_service.validate_tenant_exists(x_tenant_id)
-        if not tenant_exists:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Tenant {x_tenant_id} not found or has no content"
-            )
-    except Exception as e:
-        logger.error(f"Tenant validation error: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to validate tenant"
+        logger.info(f"Validating access for user={current_user.user_id}, tenant={current_user.tenant_id}")
+        
+        # Validate user-tenant relationship
+        await auth_validation_service.validate_user_tenant_access(
+            current_user.user_id,
+            current_user.tenant_id
         )
-    
-    return x_tenant_id
+        
+        # Validate tenant has content
+        await auth_validation_service.validate_tenant_has_content(
+            current_user.tenant_id
+        )
+        
+        logger.info(f"Access validation passed for user={current_user.user_id}")
+        return current_user
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Access validation error: {e}")
+        raise HTTPException(500, "Failed to validate access")
+
 
 def get_db():
     """Database connection dependency"""
     return get_database()
+
 
 def get_mongo():
     """MongoDB client dependency"""

@@ -127,29 +127,36 @@ class ChatService:
             )
     
     async def _get_parsing_context(self, session_id: str) -> List[Dict]:
-        """Get last 2 queries and their parsed results for context"""
+        """
+        NEW METHOD: Get last 2 queries and their parsed results for context
+        
+        Args:
+            session_id: Session ID to retrieve context from
+            
+        Returns:
+            List of dicts with query and parsed_result
+        """
         try:
+            # Get recent interactions from session handler
+            # We need last 2 interactions for context
             recent_interactions = self.advisor.session_handler.get_recent_context(
                 session_id, 
                 limit=2
             )
             
             if not recent_interactions:
-                logger.debug(f"No context found for session {session_id}")
                 return None
             
             # Format for parser
             context = []
             for interaction in recent_interactions:
+                # Only include if we have the parsed result stored
                 parsed_result = interaction.get("parsed_result")
                 if parsed_result:
                     context.append({
                         "query": interaction.get("message", ""),
                         "parsed_result": parsed_result
                     })
-            
-            if context:
-                logger.info(f"Using context from {len(context)} previous interactions")  # ✅ ADD THIS LOG
             
             return context if context else None
             
@@ -169,7 +176,8 @@ class ChatService:
         Store interaction with full parsed result for future context
         """
         try:
-            # Convert QueryResult to dict matching session_handler expected structure
+            # Convert QueryResult to dict for storage
+            # Match the structure expected by session_handler
             parsed_result_dict = {
                 "operation": query_result.operation,
                 "filters": {
@@ -182,7 +190,7 @@ class ChatService:
                 "description": query_result.description,
                 "route": query_result.route,
                 "confidence": query_result.confidence,
-                "semantic_terms": query_result.semantic_terms or []
+                "semantic_terms": query_result.semantic_terms
             }
             
             # Store in session handler WITH parsed result

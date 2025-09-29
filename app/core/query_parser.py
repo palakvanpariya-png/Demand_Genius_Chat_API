@@ -421,10 +421,11 @@ class SmartQueryParser:
 {context_string}
 
 **CONTEXT USAGE:**
-- Use this history to understand references like "now show MOFU", "exclude those", "what about X", "tell more about it"
-- If user mentions a category value without category name, check if it was used in previous queries
-- Maintain continuity - if previous query was about Industry, "show Technology" likely means Industry=Technology
-- Don't repeat filters unless explicitly asked - "also show X" means ADD to previous filters
+**CONTEXT RULES (if history provided):**
+- Vague queries ("it", "more", "those", "that") → inherit prev filters + operation
+- "tell me more/about it" = continue prev query with same params
+- "distribution of X" = inherit filters, change operation only
+- pure_advisory ONLY if explicit: "advice", "help me", "strategy"
 """
         
         return f"""

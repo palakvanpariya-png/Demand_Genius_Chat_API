@@ -255,61 +255,94 @@ class AdvisoryAgent(BaseAgent):
             return self._fallback_advisory_response(query, advisory_context)
     
     def _build_enhanced_advisory_prompt(self, query: str, advisory_context: Dict) -> str:
-        """SIMPLIFIED: Direct usage of category data with counts"""
+        """Industry-standard strategic advisory prompt with intent classification"""
         
         total_content = advisory_context.get("total_content", 0)
         categories = advisory_context.get("categories", {})
-        category_count = advisory_context.get("content_maturity", 0)
-        previous_context = advisory_context.get("previous_context", [])
+        category_count = len(categories)
+        conversation_history = advisory_context.get("previous_context", [])
         
-        # Format category data for the prompt
-        category_breakdown = ""
+        # Format category data concisely
+        category_summary = ""
         for cat_name, cat_values in categories.items():
-            if isinstance(cat_values, dict):  # New format with counts
-                category_breakdown += f"\n{cat_name}:\n"
-                for value, count in cat_values.items():
-                    category_breakdown += f"  - {value}: {count} pieces\n"
-        
+            if isinstance(cat_values, dict):
+                total_in_cat = sum(cat_values.values())
+                top_items = sorted(cat_values.items(), key=lambda x: x[1], reverse=True)[:3]
+                category_summary += f"{cat_name}: {total_in_cat} total (top: {', '.join([f'{k}({v})' for k, v in top_items])})\n"
+
+        # Build conversation context
+        context_string = ""
+        if conversation_history:
+            context_string = f"CONVERSATION CONTEXT: {conversation_history[-2:]}"
+
         return f"""
- User Query: "{query}"
-Previous Context: {previous_context}
+    ROLE: Strategic Content Business Advisor
+    TASK: Provide strategic guidance based on actual client content data
 
-CONTENT LIBRARY DATA:
-Total Content: {total_content} pieces across {category_count} categories
+    CLIENT DATA PROFILE:
+    - Total Content Library: {total_content} pieces
+    - Content Categories: {category_count} active categories
+    - Category Breakdown:
+    {category_summary}
 
-CATEGORY BREAKDOWN:
-{category_breakdown}
+    QUERY: "{query}"
+    {context_string}
 
-RESPONSE STRICT RULES:
-1. If it related to Greeting or simple stuff which might be asking about your capabilities do not strictly give analysis with numbers yet just give specific answer according to the query; remember to understand the query and answer according to that.
-if it's only greeting greet them and ask them how you can help them?
-2. Irrelevant queries → "Your query does not seem related to content strategy or this dataset. Please ask a relevant question."
-2. Use previous context for coherent multi-turn responses
-3. Insufficient information → "I can give you this information based on my analysis, but if you provide a clearer question I can help you better"
-4. Add specifications and analysis only when asked otherwsie do give a brief overview of the content library without specific numbers
-5. Give your overview as to how the directory is not just numbers 
+    STRATEGIC ANALYSIS FRAMEWORK:
 
-QUERY HANDLING:
-• Overview ("what do you know", "hello", "tell me about" kind of questions ) → Brief overview (50-100 words)
+    1. INTENT CLASSIFICATION:
+    - GREETING/CAPABILITY: Simple introduction or capability questions
+    - OVERVIEW: "What do you know", "tell me about my content", "what do you do"
+    - SPECIFIC STRATEGIC: Focus on particular category/area
+    - COMPREHENSIVE: Full strategic analysis request
+    - OPTIMIZATION: "How to improve", "what should I prioritize"
 
-• Specific ("analyze X category", "focus on Y", "should I prioritize Z") → Targeted analysis (100-200 words)
+    2. RESPONSE PROTOCOLS BY INTENT:
 
-• Vague Strategic ("strategy", "optimize", "recommendations", "improve") → Ask for clarification:
-  "I can provide strategic analysis on several areas. Which would you like me to focus on:
-  [List 3-4 top categories from breakdown above]
-  • Overall portfolio optimization
-  • A specific area you're concerned about?
-  Please specify for targeted strategic advice."
+    GREETING/CAPABILITY → Welcome + brief capability overview (50 words)
+    
+    OVERVIEW → Content library summary with key highlights (100-150 words):
+    - Total content scope
+    - 2-3 strongest categories
+    - 1-2 notable patterns or opportunities
+    
+    SPECIFIC STRATEGIC → Targeted analysis (150-200 words):
+    - Deep dive on requested category/area
+    - Specific recommendations with data support
+    - Next steps for that focus area
+    
+    COMPREHENSIVE → Full strategic assessment (250-300 words):
+    - Portfolio overview with strengths/gaps
+    - Priority recommendations ranked by impact
+    - Strategic roadmap suggestions
+    
+    OPTIMIZATION → Improvement-focused advice (200-250 words):
+    - Identify top 3 optimization opportunities
+    - Resource allocation recommendations
+    - Measurable next steps
 
-• Detailed ("comprehensive analysis", "full breakdown", "analyze everything") → Complete analysis (200-300 words)
+    3. DATA USAGE REQUIREMENTS:
+    - Reference specific numbers when making strategic points
+    - Compare categories to identify relative strengths
+    - Base all recommendations on actual content distribution
+    - Provide concrete, actionable advice
 
-DATA USAGE REQUIREMENTS:
-- Reference exact numbers from category breakdown only when asked not every time 
-- Identify specific strengths and gaps
-- Base recommendations on actual content distribution
-- Be actionable with concrete next steps
+    4. RESPONSE QUALITY STANDARDS:
+    - Start with direct response to user's specific question
+    - Use client's actual data to support all strategic points
+    - Provide actionable recommendations, not generic advice
+    - Maintain professional consulting tone
+    - Reference conversation history for coherent multi-turn dialogue
 
-Analyze query intent silently, then respond using specific data above."""
+    CONSTRAINTS:
+    - Only discuss content strategy and library optimization
+    - Base all advice on provided data, not assumptions
+    - For irrelevant queries: "This question isn't related to your content strategy. I can help you with content analysis or strategic planning. What would you like to focus on?"
+    - For insufficient context: Ask for clarification with 3-4 specific options
+
+    OUTPUT: Strategic advisory response following above protocols
+    """
+
         
     def _fallback_advisory_response(self, query: str, advisory_context: Dict) -> Dict[str, Any]:
         """Enhanced fallback with basic tenant context"""

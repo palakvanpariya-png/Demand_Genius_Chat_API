@@ -15,7 +15,7 @@ from app.config.logging_config import setup_logging
 if settings.DEBUG:
     from .api.routes import debug
 
-# Setup logging
+# Setup logging 
 setup_logger()
 setup_logging()
 
@@ -71,7 +71,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health.router, prefix="/health", tags=["health"])
-app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
+app.include_router(chat.router, prefix="/api/v1/tenant", tags=["chat"])
 
 # Include debug routes only in debug mode
 if settings.DEBUG:

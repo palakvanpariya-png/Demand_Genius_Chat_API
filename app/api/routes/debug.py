@@ -8,7 +8,7 @@ from typing import Dict, Any
 from loguru import logger
 
 from ...utilities.token_calculator import token_calculator
-from ...securities.jwt import get_current_user, JWTAccount
+from ...middleware.jwt import get_current_user, JWTAccount
 
 router = APIRouter()
 
