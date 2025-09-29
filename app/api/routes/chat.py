@@ -21,10 +21,7 @@ async def send_message(
     request: MessageRequest, 
     current_user: JWTAccount = Depends(get_current_user)
 ):
-    """
-    Process chat message and return advisory response in API format
-    UNCHANGED - maintains your existing non-streaming endpoint
-    """
+    """Process chat message and return advisory response in API format"""
     try:
         # Validate message length
         if len(request.message) > 1000:
@@ -36,24 +33,20 @@ async def send_message(
         # Use tenant_id from JWT payload
         tenant_id = current_user.tenant_id
         
-        # Auto-handle session creation
+        # Handle session_id from frontend
         session_id = request.session_id
         if not session_id:
-            # Create new session automatically if none provided
+            # Frontend didn't provide session_id, create new one
             session_id = await session_service.create_session(tenant_id)
-            logger.info(f"Auto-created session {session_id} for tenant {tenant_id}, user {current_user.user_id}")
-        else:
-            # Verify session exists and belongs to this tenant
-            existing_session = await session_service.get_session(session_id, tenant_id)
-            if not existing_session:
-                logger.warning(f"Session {session_id} not found for tenant {tenant_id}, creating new session")
-                session_id = await session_service.create_session(tenant_id)
+            logger.info(f"Auto-created session {session_id} for tenant {tenant_id}")
+        # ✅ REMOVED: No need to check if session exists
+        # MongoDB upsert will handle session creation on first interaction
         
-        # Process the chat message using LangChain (returns ChatResponse)
+        # Process the chat message using context-aware parser
         internal_response = await chat_service.process_chat_message(
             message=request.message,
             tenant_id=tenant_id,
-            session_id=session_id
+            session_id=session_id  # Use frontend's ID or backend-generated
         )
         
         # Get tenant schema for column config (only for list/semantic operations)
@@ -75,20 +68,17 @@ async def send_message(
             tenant_id=tenant_id
         )
         
-        # Always include session_id in response so client can use it for next message
+        # Always include session_id in response
         if "data" in api_response:
             api_response["data"]["session_id"] = session_id
         else:
             api_response["data"] = {"session_id": session_id}
         
-        logger.info(f"Chat message processed for tenant {tenant_id}, user {current_user.user_id}, session {session_id}, operation: {internal_response.operation}")
+        logger.info(f"Chat message processed for tenant {tenant_id}, session {session_id}, operation: {internal_response.operation}")
         return api_response
         
     except HTTPException as e:
-        return format_error_response(
-            e.detail,
-            "http_error"
-        )
+        return format_error_response(e.detail, "http_error")
     except Exception as e:
         logger.error(f"Chat endpoint error for tenant {current_user.tenant_id}: {e}")
         return format_error_response(

@@ -69,15 +69,6 @@ class AdvisoryOrchestrator:
             # Direct routing based on operation (no LangChain decision making)
             agent_response = self._route_to_agent(operation, context, original_query)
             
-            # Store interaction in session (same as existing)
-            if session_id:
-                self._store_interaction(
-                    session_id, 
-                    original_query, 
-                    agent_response, 
-                    operation,
-                    tenant_id or query_result.tenant_id
-                )
             
             return agent_response
             
@@ -124,16 +115,7 @@ class AdvisoryOrchestrator:
             ],
             "confidence": "high"
         }
-    
-    def _store_interaction(self, session_id: str, query: str, response: Dict[str, Any], 
-                          operation: str, tenant_id: str):
-        """Store interaction in MongoDB session (same as existing)"""
-        try:
-            self.session_handler.store_interaction(
-                session_id, query, response, operation, tenant_id
-            )
-        except Exception as e:
-            logger.error(f"Failed to store interaction: {e}")
+
     
     def _fallback_response(self, query: str, operation: str) -> Dict[str, Any]:
         """Fallback response with operation-specific messaging"""
