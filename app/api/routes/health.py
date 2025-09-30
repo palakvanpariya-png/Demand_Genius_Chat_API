@@ -72,7 +72,7 @@ async def detailed_status() -> Dict[str, Any]:
             },
             "configuration": {
                 "openai_configured": bool(settings.OPENAI_API_KEY and settings.OPENAI_API_KEY != "your_openai_api_key"),
-                "redis_configured": bool(settings.REDIS_URL)
+                # "redis_configured": bool(settings.REDIS_URL)
             }
         }
         

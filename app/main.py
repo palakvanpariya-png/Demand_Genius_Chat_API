@@ -6,7 +6,6 @@ from loguru import logger
 from .config.setting import settings, validate_settings
 from .config.database import db_connection
 from .api.routes import health, chat
-# Import debug routes only in debug mode
 from .utilities.logger import setup_logger
 from app.config.logging_config import setup_logging
 
