@@ -40,26 +40,26 @@ class DatabaseConnection:
     
     def disconnect(self):
         """Close database connection"""
-        if self._client is not None:  # ✅ FIXED: Use 'is not None'
+        if self._client is not None:  
             self._client.close()
             logger.info("Disconnected from MongoDB")
     
     def get_client(self):
         """Get MongoDB client"""
-        if self._client is None:  # ✅ FIXED: Use 'is None'
+        if self._client is None: 
             self.connect()
         return self._client
     
     def get_database(self):
         """Get database instance"""
-        if self._db is None:  # ✅ FIXED: Use 'is None'
+        if self._db is None:  
             self.connect()
         return self._db
     
     def health_check(self) -> bool:
         """Check database health"""
         try:
-            if self._client is None:  # ✅ FIXED: Use 'is None'
+            if self._client is None:  
                 return False
             self._client.admin.command('ping')
             return True

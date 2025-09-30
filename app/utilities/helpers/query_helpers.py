@@ -13,22 +13,30 @@ def build_base_match_query(tenant_id: str, date_filter: Optional[DateFilter],
     """Build base query with tenant, date, and marketing filters"""
     match_query = {"tenant": ObjectId(tenant_id)}
     
-    # Add date filter with improved parsing
+    # Add date filter
     if date_filter:
         date_conditions = {}
         try:
             if date_filter.start_date:
-                date_conditions["$gte"] = parse_date_string(date_filter.start_date)
+                start_dt = parse_date_string(date_filter.start_date)
+                date_conditions["$gte"] = start_dt
+                logger.debug(f"🔍 Start date filter: {start_dt}")
+                
             if date_filter.end_date:
-                # For end date, set to end of day to include the entire day
-                end_date = parse_date_string(date_filter.end_date)
-                # If no time component, set to end of day
-                if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
-                    end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-                date_conditions["$lte"] = end_date
+                end_dt = parse_date_string(date_filter.end_date)
+                if end_dt.hour == 0 and end_dt.minute == 0 and end_dt.second == 0:
+                    end_dt = end_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+                date_conditions["$lte"] = end_dt
+                logger.debug(f"🔍 End date filter: {end_dt}")
                 
             if date_conditions:
-                match_query["createdAt"] = date_conditions
+                # 🔧 FIX: Ensure createdAt exists and is not null, then apply date filter
+                match_query["$and"] = [
+                    {"datePublished": {"$exists": True, "$ne": None, "$type": "date"}},  # Must be a date type
+                    {"datePublished": date_conditions}  # Apply the date range filter
+                ]
+                logger.info(f"🔍 Date filter with existence check applied: {date_conditions}")
+                
         except ValueError as e:
             logger.warning(f"Invalid date format: {e}")
     

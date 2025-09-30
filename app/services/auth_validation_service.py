@@ -32,11 +32,6 @@ class AuthValidationService:
                 logger.warning(f"User {user_id} Email not verified")
                 raise HTTPException(403, "User account Email not verified")
             
-            # if not user.get("isActive", False):
-            #     logger.warning(f"User {user_id} is inactive")
-            #     raise HTTPException(403, "User account is inactive")
-            
-            
             # Step 2: Validate Tenant
             tenant = db.tenants.find_one({"_id": ObjectId(tenant_id)})
             if not tenant:
@@ -84,7 +79,7 @@ class AuthValidationService:
             
             if count == 0:
                 logger.warning(f"Tenant {tenant_id} has no content")
-                raise HTTPException(404, "Tenant has no content")
+                raise HTTPException(404, "Tenant has no content")   
             
             return True
             

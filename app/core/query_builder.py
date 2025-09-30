@@ -118,13 +118,6 @@ class MongoQueryExecutor:
     def _execute_data_query(self, query_result: QueryResult, is_semantic: bool = False) -> Dict[str, Any]:
         """
         Unified method for executing list and semantic operations
-        
-        Args:
-            query_result: Query parameters
-            is_semantic: Whether this is a semantic search operation
-            
-        Returns:
-            Formatted response dictionary
         """
         # Build match query using helper
         match_query = build_base_match_query(
@@ -133,18 +126,27 @@ class MongoQueryExecutor:
             query_result.marketing_filter
         )
 
+        # 🔍 DEBUG: Log the actual match query
+        logger.info(f"🔍 MATCH QUERY BEFORE FILTERS: {match_query}")
+
         # Get database connection and schema
         db = self._get_db_connection()
         schema = self._get_schema(query_result.tenant_id)
 
+        # 🔍 DEBUG: Check sample documents
+        sample_docs = list(db.sitemaps.find(
+            {"tenant": ObjectId(query_result.tenant_id)}, 
+            {"createdAt": 1, "datePublished": 1, "dateModified": 1, "_id": 1}
+        ).limit(3))
+        logger.info(f"🔍 SAMPLE DOCS: {sample_docs}")
+
         # Apply operation-specific filters
         if is_semantic:
             apply_semantic_filters(match_query, query_result.semantic_terms)
-            # Apply additional filters without negation for semantic search
             apply_category_filters(
                 match_query,
                 query_result.filters,
-                False,  # Semantic search doesn't use negation
+                False,
                 query_result.tenant_id,
                 schema,
                 db
@@ -159,6 +161,13 @@ class MongoQueryExecutor:
                 schema,
                 db
             )
+        
+        # 🔍 DEBUG: Log the final match query after all filters
+        logger.info(f"🔍 FINAL MATCH QUERY: {match_query}")
+        
+        # 🔍 DEBUG: Test the query directly
+        test_count = db.sitemaps.count_documents(match_query)
+        logger.info(f"🔍 TEST COUNT WITH MATCH QUERY: {test_count}")
         
         # Handle pagination
         skip = query_result.pagination.skip
