@@ -28,3 +28,4 @@ class QueryResult(BaseModel):
     distribution_fields: List[str] = Field(default_factory=list)
     pagination: Pagination = Field(default_factory=Pagination)
     description: Optional[str] = None
+    original_query: Optional[str] = None

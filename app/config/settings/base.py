@@ -22,12 +22,12 @@ class BackendBaseSettings(BaseSettings):
     
     # Server Configuration
     SERVER_HOST: str = config("API_HOST", default="0.0.0.0", cast=str)
-    SERVER_PORT: int = config("API_PORT", default=8000, cast=int)
+    SERVER_PORT: int = config("API_PORT", default=3002, cast=int)  # 👈 here
     API_PREFIX: str = "/api"
     DOCS_URL: str = "/docs"
     OPENAPI_URL: str = "/openapi.json"
     REDOC_URL: str = "/redoc"
-    
+
     # MongoDB Configuration (Your current setup)
     MONGODB_URI: str = config("MONGODB_URI", default="mongodb+srv://openxcelldev:VDevkdbh8RM0RXDl@clusterox.a54ut1v.mongodb.net/demand-genius")
     DATABASE_NAME: str = config("DATABASE_NAME", default="demand-genius")
@@ -71,6 +71,21 @@ class BackendBaseSettings(BaseSettings):
     # Session Configuration (Your current setup) ---- not being used currently
     MAX_SESSION_INTERACTIONS: int = config("MAX_SESSION_INTERACTIONS", default=10, cast=int)
     SESSION_CLEANUP_INTERVAL: int = config("SESSION_CLEANUP_INTERVAL", default=3600, cast=int)
+
+    # Add these to BackendBaseSettings class
+
+    # PostgreSQL Configuration (for pgvector)
+    POSTGRES_HOST: str = config("POSTGRES_HOST", default="localhost")
+    POSTGRES_PORT: int = config("POSTGRES_PORT", default=5432, cast=int)
+    POSTGRES_DB: str = config("POSTGRES_DB", default="Demand-Genius")
+    POSTGRES_USER: str = config("POSTGRES_USER", default="postgres")
+    POSTGRES_PASSWORD: str = config("POSTGRES_PASSWORD", default="admin123")
+
+    # Vector Search Configuration
+    VECTOR_SEARCH_ENABLED: bool = config("VECTOR_SEARCH_ENABLED", default=True, cast=bool)
+    VECTOR_SIMILARITY_THRESHOLD: float = config("VECTOR_SIMILARITY_THRESHOLD", default=0.7, cast=float)
+    EMBEDDING_MODEL: str = config("EMBEDDING_MODEL", default="text-embedding-ada-002")
+    EMBEDDING_DIMENSIONS: int = 1536  # OpenAI ada-002 dimension
     
     # API Configuration
     API_TITLE: str = TITLE
