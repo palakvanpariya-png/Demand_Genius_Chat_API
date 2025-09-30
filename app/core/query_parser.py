@@ -58,12 +58,19 @@ class SmartQueryParser:
             parsed = self._ai_parse(query_text, schema_data, conversation_history)
             
             # Convert parsed data to QueryResult using our models
-            return self._build_query_result(parsed, tenant_id)
+            query_result = self._build_query_result(parsed, tenant_id)
+            
+            # ✅ ADD: Store original query
+            query_result.original_query = query_text
+            
+            return query_result
             
         except Exception as e:
             logger.error(f"Error parsing query '{query_text}' for tenant {tenant_id}: {e}")
             # Return fallback semantic search
-            return self._get_fallback_query_result(query_text, tenant_id)
+            fallback = self._get_fallback_query_result(query_text, tenant_id)
+            fallback.original_query = query_text  # ✅ ADD to fallback too
+            return fallback
     
     def _format_conversation_context(
         self, 

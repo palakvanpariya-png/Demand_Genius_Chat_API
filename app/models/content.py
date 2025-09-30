@@ -37,7 +37,7 @@ class ContentItem(BaseModel):
     
     # Version and embedding (optional)
     version: Optional[int] = Field(None, alias="__v")
-    embedding: Optional[List[float]] = None
+
     
     class Config:
         populate_by_name = True
