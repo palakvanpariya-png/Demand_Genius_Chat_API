@@ -53,3 +53,4 @@ No manual setup required - database and collections are already created.
 1. Enable pgvector extension:
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
+```
