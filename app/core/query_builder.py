@@ -13,6 +13,8 @@ from ..models.query import QueryResult, FilterDict, DateFilter, Pagination
 from ..models.database import DatabaseResponse
 from ..models.content import DistributionItem, DistributionResult
 from .schema_extractor import get_tenant_schema
+from ..services.vector_service import vector_service
+from ..config.setting import settings
 
 # Import helper functions
 from ..utilities.helpers.date_utils import parse_date_string
@@ -115,9 +117,13 @@ class MongoQueryExecutor:
         finally:
             self._close_connection()
 
+ 
+
+    # Modify the _execute_data_query method
     def _execute_data_query(self, query_result: QueryResult, is_semantic: bool = False) -> Dict[str, Any]:
         """
         Unified method for executing list and semantic operations
+        Now with vector search support for semantic queries
         """
         # Build match query using helper
         match_query = build_base_match_query(
@@ -126,23 +132,50 @@ class MongoQueryExecutor:
             query_result.marketing_filter
         )
 
-        # 🔍 DEBUG: Log the actual match query
         logger.info(f"🔍 MATCH QUERY BEFORE FILTERS: {match_query}")
 
         # Get database connection and schema
         db = self._get_db_connection()
         schema = self._get_schema(query_result.tenant_id)
 
-        # 🔍 DEBUG: Check sample documents
-        sample_docs = list(db.sitemaps.find(
-            {"tenant": ObjectId(query_result.tenant_id)}, 
-            {"createdAt": 1, "datePublished": 1, "dateModified": 1, "_id": 1}
-        ).limit(3))
-        logger.info(f"🔍 SAMPLE DOCS: {sample_docs}")
-
         # Apply operation-specific filters
         if is_semantic:
-            apply_semantic_filters(match_query, query_result.semantic_terms)
+            vector_ids = []
+            if settings.VECTOR_SEARCH_ENABLED and query_result.semantic_terms:
+                try:
+                    # ✅ Priority: original_query > description > semantic_terms
+                    query_text = (
+                        query_result.original_query or 
+                        query_result.description or 
+                        " ".join(query_result.semantic_terms)
+                    )
+                    
+                    logger.info(f"🔍 Vector search with full query: '{query_text}'")
+                    
+                    vector_ids = vector_service.search_similar(
+                        query_text=query_text,
+                        tenant_id=query_result.tenant_id,
+                        limit=query_result.pagination.limit * 2
+                    )
+                    
+                    if vector_ids:
+                        logger.info(f"✅ Vector search found {len(vector_ids)} matches")
+                        # Convert string IDs to ObjectIds
+                        match_query["_id"] = {"$in": [ObjectId(id) for id in vector_ids]}
+                    else:
+                        logger.warning("⚠️ Vector search returned no results, falling back to regex")
+                        apply_semantic_filters(match_query, query_result.semantic_terms)
+                        
+                except Exception as e:
+                    logger.error(f"❌ Vector search failed: {e}, using regex fallback")
+                    apply_semantic_filters(match_query, query_result.semantic_terms)
+            else:
+                # Fallback to regex if vector search disabled
+                if not settings.VECTOR_SEARCH_ENABLED:
+                    logger.info("Vector search disabled, using regex")
+                apply_semantic_filters(match_query, query_result.semantic_terms)
+            
+            # Apply additional category filters
             apply_category_filters(
                 match_query,
                 query_result.filters,
@@ -162,12 +195,7 @@ class MongoQueryExecutor:
                 db
             )
         
-        # 🔍 DEBUG: Log the final match query after all filters
         logger.info(f"🔍 FINAL MATCH QUERY: {match_query}")
-        
-        # 🔍 DEBUG: Test the query directly
-        test_count = db.sitemaps.count_documents(match_query)
-        logger.info(f"🔍 TEST COUNT WITH MATCH QUERY: {test_count}")
         
         # Handle pagination
         skip = query_result.pagination.skip
@@ -181,7 +209,6 @@ class MongoQueryExecutor:
         # Execute query with data
         total_count = get_count(db, match_query)
         
-    
         # Build unified aggregation pipeline
         pipeline = [
             {"$match": match_query},
@@ -190,7 +217,7 @@ class MongoQueryExecutor:
             {"$skip": skip},
             {"$limit": limit}
         ]
-        logger.debug(f"Aggregation pipeline: {pipeline}")
+        
         raw_data = list(db.sitemaps.aggregate(pipeline))
         
         # Format data to match expected structure
@@ -206,8 +233,7 @@ class MongoQueryExecutor:
             total_count = 0
             page = 1
             total_pages = 1
-            return build_pagination_response(formatted_data, total_count, page, limit, total_pages)
-
+        
         return build_pagination_response(formatted_data, total_count, page, limit, total_pages)
 
     def _execute_distribution_query(self, query_result: QueryResult) -> Dict[str, Any]:
