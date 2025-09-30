@@ -41,3 +41,15 @@ pip install -r requirements.txt
 ### Development
 
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+## 🗄️ Database Configuration
+
+### MongoDB
+No manual setup required - database and collections are already created.
+
+### PostgreSQL (pgvector)
+**Required one-time setup after deployment:**
+
+1. Enable pgvector extension:
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
