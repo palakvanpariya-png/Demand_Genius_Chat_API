@@ -43,7 +43,7 @@ class BackendBaseSettings(BaseSettings):
     SECRET_KEY: str = config("SECRET_KEY", default="your-secret-key-change-in-production")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = config("ACCESS_TOKEN_EXPIRE_MINUTES", default=30, cast=int)
     
-    # Redis Configuration (Your current setup)
+    # # Redis Configuration (Your current setup)
     REDIS_URL: Optional[str] = config("REDIS_URL", default=None)
     REDIS_TTL_HOURS: int = config("REDIS_TTL_HOURS", default=24, cast=int)
     
@@ -68,7 +68,7 @@ class BackendBaseSettings(BaseSettings):
     DEFAULT_PAGE_SIZE: int = config("DEFAULT_PAGE_SIZE", default=50, cast=int)
     MAX_PAGE_SIZE: int = config("MAX_PAGE_SIZE", default=200, cast=int)
     
-    # Session Configuration (Your current setup)
+    # Session Configuration (Your current setup) ---- not being used currently
     MAX_SESSION_INTERACTIONS: int = config("MAX_SESSION_INTERACTIONS", default=10, cast=int)
     SESSION_CLEANUP_INTERVAL: int = config("SESSION_CLEANUP_INTERVAL", default=3600, cast=int)
     

@@ -1,10 +1,9 @@
 # app/api/routes/chat.py
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi.responses import StreamingResponse
 from typing import Dict, Any
 from loguru import logger
 
-from ...models.chat import MessageRequest
+from ...models.chat import MessageRequest, APIResponse
 from ...utilities.helpers.data_formatters import format_api_response, format_error_response
 from ...services.chat_service import chat_service
 from ...core.schema_extractor import get_tenant_schema
@@ -16,11 +15,11 @@ from ...middleware.validation import ValidationMiddleware  # NEW
 router = APIRouter()
 
 
-@router.post("/ai-chat", response_model=Dict[str, Any])
+@router.post("/ai-chat", response_model=APIResponse)
 async def send_message(
     request: MessageRequest, 
     current_user: JWTAccount = Depends(get_current_user),
-    validated_user: JWTAccount = Depends(validate_user_access)  # NEW: Full validation
+    validated_user: JWTAccount = Depends(validate_user_access)  
 ):
     """
     Process chat message with comprehensive validation

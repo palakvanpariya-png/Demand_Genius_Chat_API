@@ -6,11 +6,11 @@ from loguru import logger
 from ..config.database import get_database, get_mongo_client
 from ..services.schema_service import schema_service
 from ..services.auth_validation_service import auth_validation_service
-from ..middleware.jwt import JWTAccount , get_current_user # ✅ Fixed import
+from ..middleware.jwt import JWTAccount , get_current_user 
 
 
 async def validate_user_access(
-    current_user: JWTAccount = Depends(get_current_user)  # ✅ CRITICAL FIX
+    current_user: JWTAccount = Depends(get_current_user)  
 ) -> JWTAccount:
     """
     Comprehensive validation dependency

@@ -81,8 +81,8 @@ class SmartQueryParser:
         if not conversation_history:
             return ""
         
-        # Take last 2 only (configurable via settings if needed)
-        max_context = 2
+        # Take last 1 only (configurable via settings if needed)
+        max_context = 1
         recent = conversation_history[-max_context:] if len(conversation_history) > max_context else conversation_history
         
         if not recent:

@@ -11,10 +11,10 @@ class BackendDevSettings(BackendBaseSettings):
     # Override logging for development
     LOG_LEVEL: str = "DEBUG"
     
-    # More permissive CORS for local development
-    CORS_ORIGINS: list = [
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-    ]
+    # # More permissive CORS for local development
+    # CORS_ORIGINS: list = [
+    #     "http://localhost:3000",
+    #     "http://localhost:5173",
+    #     "http://127.0.0.1:3000",
+    #     "http://127.0.0.1:5173",
+    # ]
